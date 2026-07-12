@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
-    <link rel="stylesheet" href="./style.css?v=24">
+    <link rel="stylesheet" href="./style.css?v=25">
     <style>
       /* Spinner animation cho nut "VUI LONG CHO..." */
       @keyframes spin {
@@ -3964,10 +3964,13 @@ const MainContent = ({ selectedGame, setSelectedGame }) => {
     return <GameDetail game={selectedGame} onBack={() => setSelectedGame(null)} />;
   }
 
+  // Sort theo title (alphabet, case-insensitive) — nhóm game cùng series gần nhau
+  // (Dead Space, Dead Space 2, Dead Space 3 / Resident Evil 2,3,4,7 / Dragon Ball...).
+  const sortKey = (t) => t.toLowerCase().replace(/[™®©]/g, '').trim();
   const filteredGames = GAME_DATA.filter(game => {
     if (searchQuery && !game.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
-  });
+  }).sort((a, b) => sortKey(a.title).localeCompare(sortKey(b.title), 'en', { sensitivity: 'base' }));
 
   return (
     <div className="content-area">
