@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
-    <link rel="stylesheet" href="./style.css?v=23">
+    <link rel="stylesheet" href="./style.css?v=24">
     <style>
       /* Spinner animation cho nut "VUI LONG CHO..." */
       @keyframes spin {
@@ -3418,51 +3418,46 @@ const AuthPage = () => {
   );
 };
 
+// Cache header_image theo appId (tranh refetch khi scroll lai). Module-level, song toan app.
+const HEADER_CACHE = new Map();
+
 const GameCard = ({ game, onClick }) => {
   const mediaData = STEAM_MEDIA[String(game.appId)];
-  // Fallback chain: header_image hardcode (25 game cu) -> CDN cu -> CDN moi.
-  const initialCover = (mediaData && mediaData.header_image)
+  const hasHardcode = !!(mediaData && mediaData.header_image);
+  // Cover ban dau: hardcode (25 game cu) hoac CDN cu (138 game moi, co the fail).
+  const initialCover = hasHardcode
     ? mediaData.header_image
-    : `${STEAM_CDN}/${game.appId}/header.jpg`;
+    : (HEADER_CACHE.get(game.appId) || `${STEAM_CDN}/${game.appId}/header.jpg`);
   const [coverUrl, setCoverUrl] = React.useState(initialCover);
   const PLACEHOLDER = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=500&q=60";
 
-  // Lazy fetch header_image day du (co hash) tu serverless cho 138 game moi.
-  // Chi fetch khi KHONG co hardcode + CDN fail 1 lan (tranh spam 163 API call).
-  const fetchedRef = React.useRef(false);
-  const fetchHeaderFromServer = () => {
-    if (fetchedRef.current || (mediaData && mediaData.header_image)) return;
-    fetchedRef.current = true;
+  // Fetch header_image day du (co hash) tu serverless ngay khi mount cho 138 game KHONG hardcode.
+  // Cache tranh refetch. Game cu co hardcode thi bo qua.
+  React.useEffect(() => {
+    if (hasHardcode || HEADER_CACHE.has(game.appId)) return;
+    let active = true;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
     fetch(`/api/steammedia?appid=${game.appId}`, { signal: ctrl.signal })
       .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
       .then(data => {
-        if (!ctrl.signal.aborted && data && data.header_image) {
+        if (active && data && data.header_image) {
+          HEADER_CACHE.set(game.appId, data.header_image);
           setCoverUrl(data.header_image);
         }
       })
       .catch(() => {})
       .finally(() => clearTimeout(timer));
-  };
+    return () => { active = false; clearTimeout(timer); ctrl.abort(); };
+  }, [game.appId, hasHardcode]);
 
-  // onError: CDN cu fail -> thu CDN moi -> fetch serverless -> placeholder.
+  // onError don gian: CDN cu fail -> CDN moi -> placeholder.
   const handleCoverError = (e) => {
     const img = e.target;
     if (img.src.includes(STEAM_CDN)) {
-      // Buoc 1: chuyen sang CDN moi (shared.akamai, KHONG hash)
-      img.onerror = () => {
-        // Buoc 2: CDN moi cung fail -> fetch serverless lay header_image day du (co hash)
-        img.onerror = () => { img.onerror = null; img.src = PLACEHOLDER; };
-        fetchHeaderFromServer();
-      };
-      img.src = `${STEAM_STORE_CDN}/${game.appId}/header.jpg`;
-    } else if (!fetchedRef.current) {
-      // CDN moi fail va chua fetch serverless -> thu fetch
       img.onerror = () => { img.onerror = null; img.src = PLACEHOLDER; };
-      fetchHeaderFromServer();
+      img.src = `${STEAM_STORE_CDN}/${game.appId}/header.jpg`;
     } else {
-      // Da fetch serverless ma van fail -> placeholder
       img.onerror = null;
       img.src = PLACEHOLDER;
     }
