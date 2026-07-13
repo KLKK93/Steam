@@ -17,7 +17,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
-    <link rel="stylesheet" href="./style.css?v=32">
+    <link rel="stylesheet" href="./style.css?v=33">
     <style>
       /* Spinner animation cho nut "VUI LONG CHO..." */
       @keyframes spin {
@@ -3803,8 +3803,34 @@ const GameDetail = ({ game, onBack }) => {
       if (media.src.includes('.m3u8')) {
         if (window.Hls && window.Hls.isSupported()) {
           const hls = new window.Hls({
-            maxMaxBufferLength: 10,
-            enableWorker: true
+            maxMaxBufferLength: 30,
+            maxBufferLength: 15,
+            enableWorker: true,
+            lowLatencyMode: false,
+            manifestLoadingTimeOut: 20000,
+            manifestLoadingMaxRetry: 4,
+            levelLoadingTimeOut: 20000,
+            fragLoadingTimeOut: 30000,
+          });
+          // Error recovery: NETWORK -> retry load, MEDIA -> recoverMediaError, other -> destroy.
+          // Fix video "black screen khong xem duoc" cho 1 so game (Wallpaper Engine, ...).
+          hls.on(window.Hls.Events.ERROR, (event, data) => {
+            if (!data || !data.fatal) return;
+            switch (data.type) {
+              case window.Hls.ErrorTypes.NETWORK_ERROR:
+                console.warn('HLS network error, retry:', data.details);
+                hls.startLoad();
+                break;
+              case window.Hls.ErrorTypes.MEDIA_ERROR:
+                console.warn('HLS media error, recover:', data.details);
+                hls.recoverMediaError();
+                break;
+              default:
+                console.error('HLS fatal error, destroy:', data.type, data.details);
+                hls.destroy();
+                delete el.hlsInstance;
+                break;
+            }
           });
           hls.loadSource(media.src);
           hls.attachMedia(el);
