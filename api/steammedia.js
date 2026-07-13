@@ -38,6 +38,8 @@ const parseSysreq = (htmlStr) => {
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  // Cache browser 1h — mo game lai khong refetch Steam API (giam load time).
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
 
   const appId = (req.query.appid || '').toString().trim();
