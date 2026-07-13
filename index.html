@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
-    <link rel="stylesheet" href="./style.css?v=28">
+    <link rel="stylesheet" href="./style.css?v=29">
     <style>
       /* Spinner animation cho nut "VUI LONG CHO..." */
       @keyframes spin {
@@ -3449,36 +3449,30 @@ const GameCard = ({ game, onClick }) => {
   // KHONG fetch serverless khi mount — CDN cu da hoat dong. Chi fetch khi onError (lazy).
   // Cu truoc day: fetch 164 request ngay khi load home -> cham 1-2s. Bay gio: 0 request khi CDN OK.
 
-  // onError chain: CDN cu fail -> CDN moi -> serverless fetch header_image -> placeholder.
+  // onError: CDN cu fail -> fetch serverless lay header_image day du -> placeholder.
+  // Don gian, khong gan img.onerror trung gian (tranh race condition).
   const handleCoverError = (e) => {
     const img = e.target;
-    const cur = img.src;
-    if (cur.includes(STEAM_CDN)) {
-      // Buoc 1: chuyen sang CDN moi (shared.akamai, KHONG hash)
-      img.onerror = () => {
-        // Buoc 2: CDN moi fail -> fetch serverless lay header_image day du (co hash)
-        img.onerror = () => { img.onerror = null; img.src = PLACEHOLDER; };
-        if (!HEADER_CACHE.has(game.appId)) {
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 8000);
-          fetch(`/api/steammedia?appid=${game.appId}`, { signal: ctrl.signal })
-            .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
-            .then(data => {
-              if (!ctrl.signal.aborted && data && data.header_image) {
-                HEADER_CACHE.set(game.appId, data.header_image);
-                setCoverUrl(data.header_image);
-              }
-            })
-            .catch(() => {})
-            .finally(() => clearTimeout(timer));
-        }
-      };
-      img.src = `${STEAM_STORE_CDN}/${game.appId}/header.jpg`;
-    } else if (!cur.includes('unsplash')) {
-      // CDN moi fail -> placeholder
-      img.onerror = null;
-      img.src = PLACEHOLDER;
+    img.onerror = null;  // ngan loop
+    if (HEADER_CACHE.has(game.appId)) {
+      setCoverUrl(HEADER_CACHE.get(game.appId));
+      return;
     }
+    // Fetch serverless lay header_image day du (co hash) cho game CDN fail.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    fetch(`/api/steammedia?appid=${game.appId}`, { signal: ctrl.signal })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+      .then(data => {
+        if (!ctrl.signal.aborted && data && data.header_image) {
+          HEADER_CACHE.set(game.appId, data.header_image);
+          setCoverUrl(data.header_image);
+        } else {
+          setCoverUrl(PLACEHOLDER);
+        }
+      })
+      .catch(() => setCoverUrl(PLACEHOLDER))
+      .finally(() => clearTimeout(timer));
   };
   return (
     <div className="game-card" onClick={() => onClick(game)}>
@@ -3621,12 +3615,25 @@ const GameDetail = ({ game, onBack }) => {
   React.useEffect(() => {
     setLiveMedia(null);
     setLiveSysreq(null);
+    // Cache sessionStorage: mo game lai khong refetch (giam 3-5s -> 0s).
+    const cacheKey = `steam_media_${game.appId}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const data = JSON.parse(cached);
+        if (data.movies || data.screenshots) setLiveMedia(data);
+        if (data.sysreq && Object.keys(data.sysreq).length > 0) setLiveSysreq(data.sysreq);
+        return;
+      }
+    } catch (e) {}
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const timer = setTimeout(() => ctrl.abort(), 5000);  // 8s -> 5s
     fetch(`/api/steammedia?appid=${game.appId}`, { signal: ctrl.signal })
       .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then(data => {
         if (ctrl.signal.aborted) return;
+        // Cache vao sessionStorage cho lan mo sau
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch (e) {}
         if (data && (data.movies || data.screenshots)) {
           setLiveMedia(data);
         }
