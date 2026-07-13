@@ -17,7 +17,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
-    <link rel="stylesheet" href="./style.css?v=31">
+    <link rel="stylesheet" href="./style.css?v=32">
     <style>
       /* Spinner animation cho nut "VUI LONG CHO..." */
       @keyframes spin {
@@ -3545,6 +3545,71 @@ const GameDetail = ({ game, onBack }) => {
   // null khi chưa fetch xong hoặc fail → render fallback game.sysreq (hardcode, có thể rỗng).
   const [liveSysreq, setLiveSysreq] = React.useState(null);
 
+  // ====== NÚT "Click Vào Đây Để Truy Cập" — state machine ======
+  // accessState: 'idle' | 'checking' | 'installing_nexust' | 'sharing'
+  // accessNote: note dưới nút (lỗi/thông báo). Trống = không hiện.
+  const [accessState, setAccessState] = React.useState('idle');
+  const [accessNote, setAccessNote] = React.useState('');
+  const accessApiRef = React.useRef(null);  // cache window.pywebview.api ref
+
+  // Flow: bấm nút → check Steam → check NexusT → (cài NexusT nếu thiếu) → share game.
+  const handleAccessClick = async () => {
+    if (accessState !== 'idle') return;  // đang xử lý → bỏ qua click thêm
+    // Lấy bridge Python (pywebview js_api). Không có = mở browser, không có Python.
+    let api;
+    try {
+      api = window.pywebview && window.pywebview.api;
+    } catch (e) {}
+    if (!api) {
+      setAccessNote('Vui lòng mở qua ứng dụng NexusGames để truy cập game');
+      return;
+    }
+    accessApiRef.current = api;
+
+    setAccessNote('');
+    setAccessState('checking');
+    try {
+      // 1. Check Steam.
+      const steam = await api.check_steam();
+      if (!steam || !steam.installed) {
+        setAccessState('idle');
+        setAccessNote('Chưa Cài Đặt Steam, Vui Lòng Cài Đặt Steam Trước Khi Truy Cập Game');
+        return;
+      }
+      // 2. Check NexusT.
+      const nexust = await api.check_nexust(steam.path);
+      if (!nexust || !nexust.installed) {
+        // 2a. Chưa có → cài NexusT.
+        setAccessState('installing_nexust');
+        const r1 = await api.install_nexust(steam.path);
+        if (!r1 || !r1.success) {
+          setAccessState('idle');
+          setAccessNote((r1 && r1.error) ? ('Lỗi cài NexusT: ' + r1.error) : 'Lỗi cài NexusT không xác định');
+          return;
+        }
+      }
+      // 3. Share game.
+      setAccessState('sharing');
+      const r2 = await api.share_game(steam.path, String(game.appId));
+      if (!r2) {
+        setAccessState('idle');
+        setAccessNote('Lỗi share game không xác định');
+        return;
+      }
+      if (r2.already) {
+        setAccessNote('Bạn Đã Có Game Này');
+      } else if (r2.success) {
+        setAccessNote('Đã Share Game Qua Tài Khoản Steam Của Bạn Hoàn Tất');
+      } else {
+        setAccessNote((r2.error) ? ('Lỗi share game: ' + r2.error) : 'Lỗi share game không xác định');
+      }
+      setAccessState('idle');
+    } catch (e) {
+      setAccessState('idle');
+      setAccessNote('Lỗi: ' + (e && e.message ? e.message : String(e)));
+    }
+  };
+
   const mediaRefs = React.useRef([]);
   const wasPlayingRef = React.useRef(false);
 
@@ -3679,6 +3744,9 @@ const GameDetail = ({ game, onBack }) => {
     setSteamReviewText(game.reviewText);
     setSteamReviewCount(game.reviewCount);
     setSteamTags(game.tags || []);
+    // Reset nút truy cập về idle + xóa note khi đổi game.
+    setAccessState('idle');
+    setAccessNote('');
   }, [game]);
 
   React.useEffect(() => {
@@ -3943,24 +4011,37 @@ const GameDetail = ({ game, onBack }) => {
                 </div>
               </div>
 
-              {/* ====== NÚT MỞ STEAM STORE ====== */}
+              {/* ====== NÚT "Click Vào Đây Để Truy Cập" — bridge Python (check Steam -> cai/share NexusT) ====== */}
               {game.appId ? (
-                <a
-                  href={`https://store.steampowered.com/app/${game.appId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="gd-play-btn"
-                  style={{textDecoration: 'none', display: 'flex'}}
-                >
-                  <div className="gd-play-left">
-                    <i className="fa-brands fa-steam" style={{fontSize: '28px', color: 'var(--accent-cyan)'}}></i>
-                    <div>
-                      <div style={{fontSize: '10px', color: 'var(--text-muted)'}}>XEM TRÊN</div>
-                      <div style={{fontSize: '16px', fontWeight: '900', letterSpacing: '0.5px'}}>STEAM STORE</div>
+                <div>
+                  <button
+                    className="gd-play-btn"
+                    onClick={handleAccessClick}
+                    disabled={accessState !== 'idle'}
+                    style={{textDecoration: 'none', display: 'flex', cursor: accessState !== 'idle' ? 'wait' : 'pointer', opacity: accessState !== 'idle' ? 0.7 : 1}}
+                  >
+                    <div className="gd-play-left">
+                      {accessState === 'idle' ? (
+                        <i className="ph-bold ph-key" style={{fontSize: '28px', color: 'var(--accent-cyan)'}}></i>
+                      ) : (
+                        <i className="ph ph-spinner" style={{fontSize: '28px', color: 'var(--accent-cyan)', animation: 'spin 1s linear infinite'}}></i>
+                      )}
+                      <div>
+                        <div style={{fontSize: '10px', color: 'var(--text-muted)'}}>TRUY CẬP GAME</div>
+                        <div style={{fontSize: '15px', fontWeight: '900', letterSpacing: '0.3px'}}>
+                          {accessState === 'idle' && 'Click Vào Đây Để Truy Cập'}
+                          {accessState === 'checking' && 'Đang Kiểm Tra...'}
+                          {accessState === 'installing_nexust' && 'Đang Cài Đặt NexusT...'}
+                          {accessState === 'sharing' && 'Đang Share Game Qua Tài Khoản Steam...'}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <i className="ph-bold ph-arrow-square-out"></i>
-                </a>
+                    {accessState === 'idle' && <i className="ph-bold ph-arrow-right"></i>}
+                  </button>
+                  {accessNote && (
+                    <div style={{marginTop: '10px', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', lineHeight: '1.5', background: (accessNote.indexOf('Lỗi') >= 0 || accessNote.indexOf('Chưa Cài Đặt') >= 0 || accessNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)', color: (accessNote.indexOf('Lỗi') >= 0 || accessNote.indexOf('Chưa Cài Đặt') >= 0 || accessNote.indexOf('Vui lòng') >= 0) ? '#ef4444' : '#f59e0b', border: '1px solid ' + ((accessNote.indexOf('Lỗi') >= 0 || accessNote.indexOf('Chưa Cài Đặt') >= 0 || accessNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)')}}>{accessNote}</div>
+                  )}
+                </div>
               ) : (
                 <button className="gd-play-btn" disabled style={{opacity: 0.5, cursor: 'not-allowed'}}>
                   <div className="gd-play-left">
