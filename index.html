@@ -12,7 +12,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
-    <link rel="stylesheet" href="./style.css?v=27">
+    <link rel="stylesheet" href="./style.css?v=28">
     <style>
       /* Spinner animation cho nut "VUI LONG CHO..." */
       @keyframes spin {
@@ -3525,6 +3525,9 @@ const GameDetail = ({ game, onBack }) => {
   // liveMedia: JSON từ /api/steammedia (Vercel serverless) — screenshot/video tươi.
   // null khi chưa fetch xong hoặc fail → validMedia fallback STEAM_MEDIA hardcode.
   const [liveMedia, setLiveMedia] = React.useState(null);
+  // liveSysreq: cấu hình game tươi từ Steam (os, cpu, ram, gpu, dx, storage, audio, note).
+  // null khi chưa fetch xong hoặc fail → render fallback game.sysreq (hardcode, có thể rỗng).
+  const [liveSysreq, setLiveSysreq] = React.useState(null);
 
   const mediaRefs = React.useRef([]);
   const wasPlayingRef = React.useRef(false);
@@ -3617,13 +3620,18 @@ const GameDetail = ({ game, onBack }) => {
   // Timeout 8s (AbortController) — fail/timeout → giữ STEAM_MEDIA hardcode (luôn hiện ảnh).
   React.useEffect(() => {
     setLiveMedia(null);
+    setLiveSysreq(null);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
     fetch(`/api/steammedia?appid=${game.appId}`, { signal: ctrl.signal })
       .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then(data => {
-        if (!ctrl.signal.aborted && data && (data.movies || data.screenshots)) {
+        if (ctrl.signal.aborted) return;
+        if (data && (data.movies || data.screenshots)) {
           setLiveMedia(data);
+        }
+        if (data && data.sysreq && Object.keys(data.sysreq).length > 0) {
+          setLiveSysreq(data.sysreq);
         }
       })
       .catch(err => {
@@ -3944,18 +3952,18 @@ const GameDetail = ({ game, onBack }) => {
                 </div>
                 <ul className="sysreq-list">
                   <li><i className="ph ph-check"></i> Yêu cầu vi xử lý và hệ điều hành đều chạy 64-bit</li>
-                  <li><i className="ph ph-check"></i> <strong>HĐH:</strong> {game.sysreq ? game.sysreq.os : 'N/A'}</li>
-                  <li><i className="ph ph-check"></i> <strong>Bộ xử lý:</strong> {game.sysreq ? game.sysreq.cpu : 'N/A'}</li>
-                  <li><i className="ph ph-check"></i> <strong>Bộ nhớ:</strong> {game.sysreq ? game.sysreq.ram : 'N/A'}</li>
-                  <li><i className="ph ph-check"></i> <strong>Đồ họa:</strong> {game.sysreq ? game.sysreq.gpu : 'N/A'}</li>
-                  {game.sysreq && game.sysreq.dx && (
-                    <li><i className="ph ph-check"></i> <strong>DirectX:</strong> {game.sysreq.dx}</li>
+                  <li><i className="ph ph-check"></i> <strong>HĐH:</strong> {(liveSysreq || game.sysreq) ? (liveSysreq || game.sysreq).os : 'N/A'}</li>
+                  <li><i className="ph ph-check"></i> <strong>Bộ xử lý:</strong> {(liveSysreq || game.sysreq) ? (liveSysreq || game.sysreq).cpu : 'N/A'}</li>
+                  <li><i className="ph ph-check"></i> <strong>Bộ nhớ:</strong> {(liveSysreq || game.sysreq) ? (liveSysreq || game.sysreq).ram : 'N/A'}</li>
+                  <li><i className="ph ph-check"></i> <strong>Đồ họa:</strong> {(liveSysreq || game.sysreq) ? (liveSysreq || game.sysreq).gpu : 'N/A'}</li>
+                  {(liveSysreq || game.sysreq) && (liveSysreq || game.sysreq).dx && (
+                    <li><i className="ph ph-check"></i> <strong>DirectX:</strong> {(liveSysreq || game.sysreq).dx}</li>
                   )}
-                  {game.sysreq && game.sysreq.connection && (
-                    <li><i className="ph ph-check"></i> <strong>Kết nối:</strong> {game.sysreq.connection}</li>
+                  {(liveSysreq || game.sysreq) && (liveSysreq || game.sysreq).connection && (
+                    <li><i className="ph ph-check"></i> <strong>Kết nối:</strong> {(liveSysreq || game.sysreq).connection}</li>
                   )}
-                  <li><i className="ph ph-check"></i> <strong>Lưu trữ:</strong> {game.sysreq ? game.sysreq.storage : 'N/A'}</li>
-                  <li><i className="ph ph-check"></i> <strong>Ghi chú thêm:</strong> {game.sysreq ? game.sysreq.note : 'N/A'}</li>
+                  <li><i className="ph ph-check"></i> <strong>Lưu trữ:</strong> {(liveSysreq || game.sysreq) ? (liveSysreq || game.sysreq).storage : 'N/A'}</li>
+                  <li><i className="ph ph-check"></i> <strong>Ghi chú thêm:</strong> {(liveSysreq || game.sysreq) ? (liveSysreq || game.sysreq).note : 'N/A'}</li>
                 </ul>
               </div>
 
