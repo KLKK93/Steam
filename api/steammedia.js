@@ -47,7 +47,7 @@ module.exports = async (req, res) => {
   }
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const timer = setTimeout(() => ctrl.abort(), 5000);  // 5s (giam tu 8s)
 
   try {
     const url = `https://store.steampowered.com/api/appdetails?appids=${appId}&l=english`;
