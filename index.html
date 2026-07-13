@@ -7,12 +7,17 @@
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Preconnect Steam CDN: mo connection som, giam handshake khi 164 thumbnail load -->
+    <link rel="preconnect" href="https://cdn.cloudflare.steamstatic.com" crossorigin>
+    <link rel="preconnect" href="https://shared.akamai.steamstatic.com" crossorigin>
+    <link rel="preconnect" href="https://video.akamai.steamstatic.com" crossorigin>
+    <link rel="dns-prefetch" href="https://steam-snowy.vercel.app">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Saira:wght@400;500;600;700;800;900&family=Saira+Condensed:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
-    <link rel="stylesheet" href="./style.css?v=29">
+    <link rel="stylesheet" href="./style.css?v=30">
     <style>
       /* Spinner animation cho nut "VUI LONG CHO..." */
       @keyframes spin {
@@ -3477,7 +3482,7 @@ const GameCard = ({ game, onClick }) => {
   return (
     <div className="game-card" onClick={() => onClick(game)}>
       <div className="game-cover-wrapper">
-        <img src={coverUrl} alt={game.title} className="game-cover" onError={handleCoverError} />
+        <img src={coverUrl} alt={game.title} className="game-cover" onError={handleCoverError} loading="lazy" decoding="async" />
       </div>
       <div className="game-info">
         <div className="game-title">
