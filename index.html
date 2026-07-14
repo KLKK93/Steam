@@ -4580,59 +4580,99 @@ const NotSupportedContent = ({ platform }) => {
 };
 
 // ============================================================
-// THIRD-PARTY PAGE — search game tu 25 Hydra download source (repack)
+// THIRD-PARTY PAGE — catalogue game (Hydra pattern)
+// Flow: catalogue (thumbnail) → Add to Library → Library → click → game-detail → Download → repacks modal
 // ============================================================
 
-const TpGameCard = ({ game, onClick }) => {
-  // Format date ngan gon: 2026-07-13 -> 13/07/26
-  const fmtDate = (d) => {
-    if (!d) return '';
-    try { const dt = new Date(d); return dt.toLocaleDateString('vi-VN'); } catch { return d; }
-  };
+// Normalize title repack cho Steam search: strip "Free Download", "v...", "[Patch...]", "(Build...)", brackets, edition tags.
+// Vd "ELDEN RING [Patch Note#1/Build-24152930+Co-OP]" → "ELDEN RING".
+const normalizeTitle = (raw) => {
+  if (!raw) return '';
+  let t = raw;
+  // Strip "Free Download" / "Download" prefixes.
+  t = t.replace(/\bFree Download\b/gi, '').replace(/\bDownload\b/gi, '');
+  // Strip version: "v5f6049d", "v1.2.3", "Build-24152930", "Update 3".
+  t = t.replace(/\bv[\d][\w.]*/gi, '').replace(/\bBuild[- ]?[\w]+/gi, '').replace(/\bUpdate\s*\d+/gi, '');
+  // Strip brackets content: [Patch...], [Co-Op], [Multiplayer], (Patch#1), (Build-24152930+Co-Op).
+  t = t.replace(/\[[^\]]*\]/g, '').replace(/\([^)]*\)/g, '');
+  // Strip edition tags: GOTY, Deluxe, Premium, Repack, Multilanguage, Multi12, Empress, DODI, FitGirl, SteamRip.
+  t = t.replace(/\b(GOTY|Deluxe|Premium|Edition|Repack|Multilanguage|Multi\d+|Empress|DODI|FitGirl|SteamRip|Online-Fix|KaosKrew|TinyRepacks|Rexa|Empress|GOG|Steam|PSX|ROM)\b/gi, '');
+  // Strip hash/symbols.
+  t = t.replace(/[#+]+/g, ' ');
+  // Collapse whitespace.
+  t = t.replace(/\s+/g, ' ').trim();
+  return t || raw.trim();
+};
+
+// ---- TpGameCard: card game với thumbnail (lazy fetch qua /api/thirdparty) ----
+const TpGameCard = ({ game, thumbnail, isInLibrary, onClick, onAddLibrary }) => {
   return (
-    <div className="tp-card" onClick={() => onClick(game)}>
-      <div className="tp-card-cover">
-        <span className="tp-source-badge">{game.sourceName || 'N/A'}</span>
-        <i className="ph ph-package"></i>
+    <div className="tp-card" onClick={onClick}>
+      <div className="tp-card-thumb">
+        {thumbnail ? (
+          <img src={thumbnail} alt={game.title} loading="lazy" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
+        ) : null}
+        <div className="tp-card-thumb-placeholder" style={{display: thumbnail ? 'none' : 'flex'}}>
+          <i className="ph ph-package"></i>
+        </div>
+        <span className="tp-source-count">{game.sources.length} nguồn</span>
       </div>
       <div className="tp-card-info">
         <div className="tp-card-title">{game.title || 'Không tên'}</div>
-        <div className="tp-card-meta">
-          {game.fileSize && game.fileSize !== 'Unknown' ? game.fileSize : '—'}
-          <span className="tp-meta-sep"></span>
-          {fmtDate(game.uploadDate)}
+        <div className="tp-card-actions">
+          <button
+            className="tp-add-btn"
+            onClick={(e) => { e.stopPropagation(); onAddLibrary(); }}
+            disabled={isInLibrary}
+          >
+            {isInLibrary ? (
+              <><i className="ph-bold ph-check"></i> Đã có</>
+            ) : (
+              <><i className="ph-bold ph-plus"></i> Thêm</>
+            )}
+          </button>
         </div>
       </div>
     </div>
   );
 };
 
-const ThirdPartyDetail = ({ game, onBack }) => {
-  const [dlState, setDlState] = React.useState('idle');
+// ---- RepacksModal: list source repack, click → chọn folder → 5.py download ----
+const RepacksModal = ({ game, onClose }) => {
   const [dlNote, setDlNote] = React.useState('');
-  const [selectedUri, setSelectedUri] = React.useState(game.uris && game.uris.length > 0 ? game.uris[0] : '');
+  const [dlState, setDlState] = React.useState('idle');  // idle | downloading | done | error
 
   const fmtDate = (d) => {
-    if (!d) return '—';
-    try { return new Date(d).toLocaleString('vi-VN'); } catch { return d; }
-  };
-  const getHostname = (u) => {
-    try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; }
+    if (!d) return '';
+    try { return new Date(d).toLocaleDateString('vi-VN'); } catch { return d; }
   };
 
-  const handleDownload = async () => {
-    if (!selectedUri) { setDlNote('Vui lòng chọn link download'); return; }
+  const handleDownloadSource = async (source) => {
     if (!window.pywebview || !window.pywebview.api) {
       setDlNote('Vui lòng mở qua ứng dụng NexusGames để tải game');
+      setDlState('error');
+      return;
+    }
+    // Chọn folder qua pywebview browse_folder.
+    let folder = '';
+    try {
+      const r = await window.pywebview.api.browse_folder();
+      if (r && r.path) folder = r.path;
+    } catch {}
+    if (!folder) {
+      setDlNote('Đã hủy chọn folder');
       return;
     }
     setDlState('downloading');
-    setDlNote('Đang tải + giải nén... vui lòng đợi');
+    setDlNote('Đang tải + giải nén từ ' + source.name + ' vào ' + folder + '...');
     try {
-      const r = await window.pywebview.api.download_thirdparty(selectedUri, '');
+      // Lấy uri đầu tiên (hoặc uri tốt nhất).
+      const uri = (source.uris || [])[0] || '';
+      if (!uri) { setDlState('error'); setDlNote('Source không có link tải'); return; }
+      const r = await window.pywebview.api.download_thirdparty(uri, folder);
       if (r.success) {
         setDlState('done');
-        setDlNote('Đã tải + giải nén xong vào: ' + (r.extractedPath || 'Downloads/NexusGames'));
+        setDlNote('Đã tải + giải nén xong vào: ' + (r.extractedPath || folder));
       } else if (r.browser) {
         setDlState('idle');
         setDlNote(r.message || 'Hoster cần tải thủ công, đã mở link trong trình duyệt');
@@ -4647,80 +4687,273 @@ const ThirdPartyDetail = ({ game, onBack }) => {
   };
 
   return (
-    <div className="tp-detail">
-      <div className="tp-detail-hero">
-        <div className="tp-detail-back" onClick={onBack}>
-          <i className="ph-bold ph-arrow-left" style={{fontSize: '20px'}}></i>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="repacks-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="repacks-modal-header">
+          <h3><i className="ph-bold ph-download-simple"></i> Nguồn Tải Game</h3>
+          <button className="repacks-modal-close" onClick={onClose}><i className="ph-bold ph-x"></i></button>
         </div>
-        <i className="ph ph-package tp-detail-hero-icon"></i>
-        <div className="tp-detail-hero-content">
-          <div className="tp-detail-title">{game.title || 'Không tên'}</div>
-          <div className="tp-detail-source">
-            <i className="ph-bold ph-globe" style={{fontSize: '12px'}}></i>
-            {game.sourceName || 'N/A'}
-          </div>
-        </div>
-      </div>
-      <div className="tp-detail-body">
-        <div className="tp-detail-info">
-          <div className="tp-detail-info-block">
-            <div className="tp-detail-info-label">Kích thước</div>
-            <div className="tp-detail-info-value">{game.fileSize && game.fileSize !== 'Unknown' ? game.fileSize : 'Không rõ'}</div>
-          </div>
-          <div className="tp-detail-info-block">
-            <div className="tp-detail-info-label">Ngày đăng</div>
-            <div className="tp-detail-info-value">{fmtDate(game.uploadDate)}</div>
-          </div>
-          <div className="tp-detail-info-block">
-            <div className="tp-detail-info-label">Số link tải</div>
-            <div className="tp-detail-info-value">{(game.uris || []).length} link</div>
-          </div>
-          {game.descriptionHtml && (
-            <div className="tp-detail-info-block">
-              <div className="tp-detail-info-label">Hướng dẫn</div>
-              <div className="tp-detail-description" dangerouslySetInnerHTML={{__html: game.descriptionHtml}}></div>
+        <p className="repacks-modal-game">{game.title}</p>
+        <div className="repacks-modal-list">
+          {game.sources.map((src, i) => (
+            <div key={i} className="repack-item" onClick={() => handleDownloadSource(src)}>
+              <span className="repack-item-badge">{src.name}</span>
+              <div className="repack-item-info">
+                <div className="repack-item-title">{src.title}</div>
+                <div className="repack-item-meta">
+                  {src.fileSize && src.fileSize !== 'Unknown' ? src.fileSize : '—'}
+                  {' · '}
+                  {fmtDate(src.uploadDate)}
+                  {' · '}
+                  {(src.uris || []).length} link
+                </div>
+              </div>
+              <i className="ph-bold ph-arrow-right repack-item-arrow"></i>
             </div>
-          )}
+          ))}
         </div>
-        <div className="tp-detail-download">
-          <div className="tp-dl-title">TẢI GAME</div>
-          <select className="tp-uri-select" value={selectedUri} onChange={(e) => setSelectedUri(e.target.value)}>
-            {(game.uris || []).map((u, i) => (
-              <option key={i} value={u}>{getHostname(u)}{game.uris.length > 1 ? ' #' + (i + 1) : ''}</option>
-            ))}
-          </select>
-          <button className="tp-download-btn" onClick={handleDownload} disabled={dlState === 'downloading'}>
-            {dlState === 'downloading' ? (
-              <><i className="ph ph-spinner" style={{animation: 'spin 1s linear infinite'}}></i> ĐANG TẢI...</>
-            ) : dlState === 'done' ? (
-              <><i className="ph-bold ph-check-circle"></i> ĐÃ XONG</>
-            ) : (
-              <><i className="ph-bold ph-download-simple"></i> TẢI GAME</>
-            )}
-          </button>
-          {dlNote && (
-            <div className={'tp-dl-note' + (dlState === 'error' ? ' tp-note-error' : dlState === 'done' ? ' tp-note-success' : '')}>
-              {dlNote}
-            </div>
-          )}
-        </div>
+        {dlNote && (
+          <div className={'tp-dl-note' + (dlState === 'error' ? ' tp-note-error' : dlState === 'done' ? ' tp-note-success' : '')}>
+            {dlNote}
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
+// ---- ThirdPartyDetail: game-detail (Steam info + gallery + achievement + download) ----
+const ThirdPartyDetail = ({ game, onBack, isInLibrary, onAddLibrary }) => {
+  const [steamData, setSteamData] = React.useState(null);
+  const [steamLoading, setSteamLoading] = React.useState(true);
+  const [showRepacks, setShowRepacks] = React.useState(false);
+  const [activeMediaIndex, setActiveMediaIndex] = React.useState(0);
+  const [activeRightTab, setActiveRightTab] = React.useState('info');
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // 1. Match title → appId.
+        const searchResp = await fetch('/api/thirdparty?title=' + encodeURIComponent(game.normalizedTitle));
+        const searchData = await searchResp.json();
+        if (cancelled || !searchData || searchData.error) {
+          setSteamLoading(false);
+          return;
+        }
+        const appId = searchData.appId;
+        // 2. appdetails → full info.
+        const detailResp = await fetch('/api/thirdparty?appId=' + appId);
+        const detailData = await detailResp.json();
+        if (cancelled) return;
+        if (detailData && !detailData.error) {
+          setSteamData({ ...detailData, appId, metascore: searchData.metascore || '' });
+        }
+      } catch (e) {
+        // Silent fail — detail vẫn hiện với repack info.
+      }
+      if (!cancelled) setSteamLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [game]);
+
+  // Build media array (screenshots + movies) giống GameDetail.
+  const media = React.useMemo(() => {
+    if (!steamData) return [];
+    const m = [];
+    (steamData.movies || []).forEach((mv) => {
+      if (mv.src) m.push({ type: 'video', src: mv.src, thumb: mv.thumb });
+    });
+    (steamData.screenshots || []).forEach((s) => {
+      if (s) m.push({ type: 'image', src: s, thumb: s });
+    });
+    return m;
+  }, [steamData]);
+
+  const fmtDate = (d) => {
+    if (!d) return '—';
+    try { return new Date(d).toLocaleString('vi-VN'); } catch { return d; }
+  };
+
+  return (
+    <div className="tp-detail">
+      <div className="tp-detail-back" onClick={onBack}>
+        <i className="ph-bold ph-arrow-left" style={{fontSize: '20px'}}></i>
+      </div>
+      {/* Hero: header_image Steam (hoặc placeholder) */}
+      <div className="tp-detail-hero" style={{backgroundImage: steamData && steamData.header_image ? 'url(' + steamData.header_image + ')' : 'linear-gradient(135deg, #1f2228 0%, #15171c 100%)'}}>
+        <div className="tp-detail-hero-content">
+          <div className="tp-detail-title">{game.title || 'Không tên'}</div>
+          <div className="tp-detail-source">
+            <i className="ph-bold ph-globe" style={{fontSize: '12px'}}></i>
+            {game.sources.length} nguồn tải
+          </div>
+        </div>
+      </div>
+
+      <div className="tp-detail-body">
+        {/* Left: gallery + description */}
+        <div className="tp-detail-main">
+          {steamLoading && (
+            <div className="tp-loading-banner">
+              <i className="ph ph-spinner"></i>
+              Đang tải thông tin Steam...
+            </div>
+          )}
+          {/* Gallery (screenshots + video) */}
+          {media.length > 0 && (
+            <div className="gd-media-section">
+              <div className="gd-media-frame">
+                {media[activeMediaIndex] && media[activeMediaIndex].type === 'video' ? (
+                  <video
+                    key={media[activeMediaIndex].src}
+                    controls
+                    autoPlay
+                    muted
+                    playsInline
+                    style={{width: '100%', height: '100%', objectFit: 'cover'}}
+                    ref={(el) => {
+                      if (el && media[activeMediaIndex] && media[activeMediaIndex].src.endsWith('.m3u8')) {
+                        if (window.Hls && window.Hls.isSupported()) {
+                          const hls = new window.Hls();
+                          hls.loadSource(media[activeMediaIndex].src);
+                          hls.attachMedia(el);
+                          hls.on(window.Hls.Events.MANIFEST_PARSED, () => { el.play().catch(() => {}); });
+                        } else if (el.canPlayType('application/vnd.apple.mpegurl')) {
+                          el.src = media[activeMediaIndex].src;
+                          el.addEventListener('loadedmetadata', () => { el.play().catch(() => {}); });
+                        }
+                      }
+                    }}
+                  />
+                ) : media[activeMediaIndex] ? (
+                  <img src={media[activeMediaIndex].src} alt="" style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                ) : null}
+              </div>
+              <div className="gd-gallery">
+                {media.map((m, i) => (
+                  <div
+                    key={i}
+                    className={'gd-gallery-item ' + (i === activeMediaIndex ? 'active' : '')}
+                    onClick={() => setActiveMediaIndex(i)}
+                  >
+                    {m.type === 'video' ? (
+                      <div style={{position: 'relative', width: '100%', height: '100%'}}>
+                        <img src={m.thumb} alt="" style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                        <i className="ph-fill ph-play-circle" style={{position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: '24px', color: 'rgba(255,255,255,0.8)'}}></i>
+                      </div>
+                    ) : (
+                      <img src={m.thumb || m.src} alt="" style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Description */}
+          {steamData && steamData.about_the_game && (
+            <div className="tp-detail-desc" dangerouslySetInnerHTML={{__html: steamData.about_the_game}}></div>
+          )}
+        </div>
+
+        {/* Right sidebar: tabs Info / Sysreq / Achievement + action buttons */}
+        <div className="tp-detail-sidebar">
+          <div className="tp-action-buttons">
+            {!isInLibrary && (
+              <button className="tp-add-detail-btn" onClick={onAddLibrary}>
+                <i className="ph-bold ph-plus-circle"></i> Thêm Vào Thư Viện
+              </button>
+            )}
+            <button className="tp-download-detail-btn" onClick={() => setShowRepacks(true)}>
+              <i className="ph-bold ph-download-simple"></i> Tải Game
+            </button>
+          </div>
+
+          <div className="gd-right-tabs">
+            <button className={'icon-btn ' + (activeRightTab === 'info' ? 'active' : '')} onClick={() => setActiveRightTab('info')}>
+              <i className="ph-bold ph-info"></i>
+            </button>
+            <button className={'icon-btn ' + (activeRightTab === 'sysreq' ? 'active' : '')} onClick={() => setActiveRightTab('sysreq')} disabled={!steamData || !steamData.sysreq}>
+              <i className="ph-bold ph-cpu"></i>
+            </button>
+            <button className={'icon-btn ' + (activeRightTab === 'achievement' ? 'active' : '')} onClick={() => setActiveRightTab('achievement')} disabled={!steamData || !steamData.achievements}>
+              <i className="ph-bold ph-trophy"></i>
+            </button>
+          </div>
+
+          {activeRightTab === 'info' && (
+            <div className="tp-right-panel">
+              <div className="tp-info-row"><span className="tp-info-label">Số nguồn tải</span><span className="tp-info-value">{game.sources.length}</span></div>
+              <div className="tp-info-row"><span className="tp-info-label">Cập nhật mới nhất</span><span className="tp-info-value">{fmtDate(game.latestDate)}</span></div>
+              {steamData && steamData.developers && steamData.developers.length > 0 && (
+                <div className="tp-info-row"><span className="tp-info-label">Nhà phát triển</span><span className="tp-info-value">{steamData.developers.join(', ')}</span></div>
+              )}
+              {steamData && steamData.publishers && steamData.publishers.length > 0 && (
+                <div className="tp-info-row"><span className="tp-info-label">Nhà phát hành</span><span className="tp-info-value">{steamData.publishers.join(', ')}</span></div>
+              )}
+              {steamData && steamData.genres && steamData.genres.length > 0 && (
+                <div className="tp-info-row"><span className="tp-info-label">Thể loại</span><span className="tp-info-value">{steamData.genres.join(', ')}</span></div>
+              )}
+              {steamData && steamData.metascore && (
+                <div className="tp-info-row"><span className="tp-info-label">Metascore</span><span className="tp-info-value">{steamData.metascore}</span></div>
+              )}
+            </div>
+          )}
+
+          {activeRightTab === 'sysreq' && steamData && steamData.sysreq && (
+            <div className="tp-right-panel">
+              {steamData.sysreq.os && <div className="tp-info-row"><span className="tp-info-label">OS</span><span className="tp-info-value">{steamData.sysreq.os}</span></div>}
+              {steamData.sysreq.cpu && <div className="tp-info-row"><span className="tp-info-label">CPU</span><span className="tp-info-value">{steamData.sysreq.cpu}</span></div>}
+              {steamData.sysreq.ram && <div className="tp-info-row"><span className="tp-info-label">RAM</span><span className="tp-info-value">{steamData.sysreq.ram}</span></div>}
+              {steamData.sysreq.gpu && <div className="tp-info-row"><span className="tp-info-label">GPU</span><span className="tp-info-value">{steamData.sysreq.gpu}</span></div>}
+              {steamData.sysreq.dx && <div className="tp-info-row"><span className="tp-info-label">DirectX</span><span className="tp-info-value">{steamData.sysreq.dx}</span></div>}
+              {steamData.sysreq.storage && <div className="tp-info-row"><span className="tp-info-label">Storage</span><span className="tp-info-value">{steamData.sysreq.storage}</span></div>}
+            </div>
+          )}
+
+          {activeRightTab === 'achievement' && steamData && steamData.achievements && (
+            <div className="tp-right-panel">
+              <div className="tp-achievement-header">
+                <i className="ph-bold ph-trophy" style={{fontSize: '20px', color: 'var(--accent-yellow)'}}></i>
+                <span>{steamData.achievements.total} thành tựu</span>
+              </div>
+              <div className="tp-achievement-list">
+                {steamData.achievements.highlighted.map((a, i) => (
+                  <div key={i} className="tp-achievement-item">
+                    {a.path && <img src={a.path} alt="" className="tp-achievement-icon" />}
+                    <span className="tp-achievement-name">{a.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showRepacks && <RepacksModal game={game} onClose={() => setShowRepacks(false)} />}
+    </div>
+  );
+};
+
+// ---- ThirdPartyContent: catalogue (group by title, lazy thumbnail, infinite scroll) ----
 const ThirdPartyContent = () => {
-  const [allGames, setAllGames] = React.useState([]);
+  const [allGames, setAllGames] = React.useState([]);  // grouped by normalizedTitle
   const [loading, setLoading] = React.useState(true);
   const [loadProgress, setLoadProgress] = React.useState({done: 0, total: THIRD_PARTY_SOURCES.length});
   const [searchQuery, setSearchQuery] = React.useState('');
   const [selectedTpGame, setSelectedTpGame] = React.useState(null);
+  const [thumbnailCache, setThumbnailCache] = React.useState({});  // normalizedTitle → {appId, thumbnail}
+  const [visibleCount, setVisibleCount] = React.useState(50);
+  const [library, setLibrary] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem('nexus_library') || '[]'); } catch { return []; }
+  });
 
+  // Fetch 28 source → aggregate → group by normalizedTitle.
   React.useEffect(() => {
     let cancelled = false;
     let done = 0;
     const total = THIRD_PARTY_SOURCES.length;
-    const results = [];
+    const allDownloads = [];
 
     THIRD_PARTY_SOURCES.forEach(async (url) => {
       try {
@@ -4729,58 +4962,148 @@ const ThirdPartyContent = () => {
           const r = await window.pywebview.api.fetch_source(url);
           if (r && r.ok) data = r.data;
         } else {
-          // Fallback: browser fetch (co the bi CORS cho 1 so source).
           const resp = await fetch(url);
           data = await resp.json();
         }
         if (!cancelled && data) {
           const sourceName = data.name || (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'N/A'; } })();
-          const downloads = (data.downloads || []).map((d) => ({
-            ...d,
-            sourceName,
-            sourceUrl: url,
-            tpId: (d.title || '') + '|' + url + '|' + (d.uploadDate || ''),
-          }));
-          results.push(...downloads);
+          (data.downloads || []).forEach((d) => {
+            allDownloads.push({
+              title: d.title || 'Không tên',
+              uris: d.uris || [],
+              uploadDate: d.uploadDate || '',
+              fileSize: d.fileSize || '',
+              descriptionHtml: d.descriptionHtml || '',
+              name: sourceName,
+              sourceUrl: url,
+            });
+          });
         }
-      } catch (e) {
-        // Source fail -> skip, khong break.
-      }
+      } catch (e) {}
       done++;
       if (!cancelled) setLoadProgress({done, total});
       if (done >= total && !cancelled) {
-        // Sort uploadDate desc.
-        results.sort((a, b) => {
-          const da = a.uploadDate ? new Date(a.uploadDate).getTime() : 0;
-          const db = b.uploadDate ? new Date(b.uploadDate).getTime() : 0;
+        // Group by normalizedTitle.
+        const groups = {};
+        allDownloads.forEach((d) => {
+          const nt = normalizeTitle(d.title);
+          if (!groups[nt]) {
+            groups[nt] = {
+              title: nt,           // dùng title đã normalize làm title hiển thị (sạch hơn)
+              normalizedTitle: nt,
+              sources: [],
+              latestDate: '',
+            };
+          }
+          groups[nt].sources.push({
+            name: d.name,
+            title: d.title,
+            uris: d.uris,
+            fileSize: d.fileSize,
+            uploadDate: d.uploadDate,
+            descriptionHtml: d.descriptionHtml,
+          });
+          if (d.uploadDate) {
+            const t = new Date(d.uploadDate).getTime();
+            if (!groups[nt].latestDate || t > new Date(groups[nt].latestDate).getTime()) {
+              groups[nt].latestDate = d.uploadDate;
+            }
+          }
+        });
+        const arr = Object.values(groups).sort((a, b) => {
+          const da = a.latestDate ? new Date(a.latestDate).getTime() : 0;
+          const db = b.latestDate ? new Date(b.latestDate).getTime() : 0;
           return db - da;
         });
-        setAllGames(results);
+        setAllGames(arr);
         setLoading(false);
       }
     });
     return () => { cancelled = true; };
   }, []);
 
+  // Lazy fetch thumbnail cho visible games (top visibleCount).
+  React.useEffect(() => {
+    if (loading || allGames.length === 0) return;
+    const toFetch = allGames.slice(0, visibleCount).filter((g) => !(g.normalizedTitle in thumbnailCache));
+    if (toFetch.length === 0) return;
+    let cancelled = false;
+    // Fetch song song nhưng giới hạn 10 concurrent để tránh rate limit.
+    const fetchOne = async (g) => {
+      try {
+        const resp = await fetch('/api/thirdparty?title=' + encodeURIComponent(g.normalizedTitle));
+        const data = await resp.json();
+        if (!cancelled && data && !data.error) {
+          setThumbnailCache((prev) => ({...prev, [g.normalizedTitle]: {appId: data.appId, thumbnail: data.thumbnail}}));
+        }
+      } catch (e) {}
+    };
+    // Batch 10.
+    let idx = 0;
+    const runBatch = () => {
+      if (cancelled) return;
+      const batch = toFetch.slice(idx, idx + 10);
+      if (batch.length === 0) return;
+      Promise.allSettled(batch.map(fetchOne)).then(() => {
+        idx += 10;
+        if (idx < toFetch.length) runBatch();
+      });
+    };
+    runBatch();
+    return () => { cancelled = true; };
+  }, [allGames, visibleCount, loading]);
+
+  // Infinite scroll: scroll đến cuối → visibleCount +50.
+  const handleScroll = (e) => {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+      setVisibleCount((c) => Math.min(c + 50, allGames.length));
+    }
+  };
+
+  const isInLibrary = (game) => library.some((g) => g.normalizedTitle === game.normalizedTitle);
+
+  const handleAddLibrary = (game) => {
+    const thumb = thumbnailCache[game.normalizedTitle] || {};
+    const newGame = {
+      id: Date.now(),
+      title: game.title,
+      normalizedTitle: game.normalizedTitle,
+      thumbnail: thumb.thumbnail || '',
+      appId: thumb.appId || '',
+      sources: game.sources,
+      addedAt: new Date().toISOString(),
+    };
+    const newLib = [newGame, ...library];
+    setLibrary(newLib);
+    try { localStorage.setItem('nexus_library', JSON.stringify(newLib)); } catch {}
+  };
+
   if (selectedTpGame) {
-    return <ThirdPartyDetail game={selectedTpGame} onBack={() => setSelectedTpGame(null)} />;
+    return (
+      <ThirdPartyDetail
+        game={selectedTpGame}
+        onBack={() => setSelectedTpGame(null)}
+        isInLibrary={isInLibrary(selectedTpGame)}
+        onAddLibrary={() => handleAddLibrary(selectedTpGame)}
+      />
+    );
   }
 
-  const filteredGames = allGames.filter(g => {
+  const filteredGames = allGames.filter((g) => {
     if (searchQuery && !g.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
-  const DISPLAY_LIMIT = 200;
 
   return (
-    <div className="content-area">
+    <div className="content-area" onScroll={handleScroll} style={{overflowY: 'auto', maxHeight: '100%'}}>
       <div style={{display: 'flex', justifyContent: 'center', marginBottom: '24px'}}>
         <div className="search-filter-container">
           <div className="sf-search">
             <i className="ph ph-magnifying-glass"></i>
             <input
               type="text"
-              placeholder="Tìm kiếm game repack..."
+              placeholder="Tìm kiếm game..."
               className="search-input"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -4797,16 +5120,23 @@ const ThirdPartyContent = () => {
       )}
 
       <div className="section-title" style={{marginBottom: '16px'}}>
-        THIRD-PARTY REPACKS
+        THIRD-PARTY
         <span style={{fontSize: '14px', color: 'var(--text-muted)', fontWeight: '600', marginLeft: '8px'}}>
-          {loading ? '...' : filteredGames.length + ' kết quả'}
+          {loading ? '...' : filteredGames.length + ' game'}
         </span>
       </div>
 
       <div className="tp-grid">
         {filteredGames.length > 0 ? (
-          filteredGames.slice(0, DISPLAY_LIMIT).map((g) => (
-            <TpGameCard key={g.tpId} game={g} onClick={setSelectedTpGame} />
+          filteredGames.slice(0, visibleCount).map((g) => (
+            <TpGameCard
+              key={g.normalizedTitle}
+              game={g}
+              thumbnail={thumbnailCache[g.normalizedTitle] ? thumbnailCache[g.normalizedTitle].thumbnail : null}
+              isInLibrary={isInLibrary(g)}
+              onClick={() => setSelectedTpGame(g)}
+              onAddLibrary={() => handleAddLibrary(g)}
+            />
           ))
         ) : (
           <div style={{color: 'var(--text-muted)', padding: '40px', textAlign: 'center', width: '100%', gridColumn: '1 / -1'}}>
@@ -4815,9 +5145,9 @@ const ThirdPartyContent = () => {
         )}
       </div>
 
-      {!loading && filteredGames.length > DISPLAY_LIMIT && (
+      {!loading && filteredGames.length > visibleCount && (
         <div style={{color: 'var(--text-muted)', padding: '16px', textAlign: 'center', fontSize: '13px', fontWeight: '700'}}>
-          Hiện {DISPLAY_LIMIT}/{filteredGames.length} — thu hẹp tìm kiếm để xem thêm.
+          Cuộn xuống để xem thêm ({visibleCount}/{filteredGames.length})
         </div>
       )}
     </div>
@@ -4825,7 +5155,7 @@ const ThirdPartyContent = () => {
 };
 
 // ============================================================
-// LIBRARY PAGE — add game thủ công, lưu localStorage
+// LIBRARY PAGE — game đã add (thumbnail + source count + achievement)
 // ============================================================
 
 const AddGameModal = ({ onSubmit, onCancel }) => {
@@ -4902,19 +5232,41 @@ const LibraryContent = () => {
   });
   const [searchQuery, setSearchQuery] = React.useState('');
   const [showAdd, setShowAdd] = React.useState(false);
+  const [selectedLibGame, setSelectedLibGame] = React.useState(null);
+  const [achievementCache, setAchievementCache] = React.useState({});  // appId → achievements count
 
   const saveLib = (newLib) => {
     setLibrary(newLib);
     try { localStorage.setItem('nexus_library', JSON.stringify(newLib)); } catch {}
   };
 
+  // Lazy fetch achievement count cho library games (co appId).
+  React.useEffect(() => {
+    library.forEach(async (g) => {
+      if (g.appId && !(g.appId in achievementCache)) {
+        try {
+          const resp = await fetch('/api/thirdparty?appId=' + g.appId);
+          const data = await resp.json();
+          if (data && !data.error && data.achievements) {
+            setAchievementCache((prev) => ({...prev, [g.appId]: data.achievements.total}));
+          } else {
+            setAchievementCache((prev) => ({...prev, [g.appId]: 0}));
+          }
+        } catch { setAchievementCache((prev) => ({...prev, [g.appId]: 0})); }
+      }
+    });
+  }, [library]);
+
   const handleAdd = (game) => {
     const newGame = {
       id: Date.now(),
       title: game.title,
+      normalizedTitle: normalizeTitle(game.title),
       folderPath: game.folderPath,
       exePath: game.exePath || '',
       coverUrl: game.coverUrl || '',
+      thumbnail: game.coverUrl || '',
+      sources: [],
       addedAt: new Date().toISOString(),
     };
     saveLib([newGame, ...library]);
@@ -4934,6 +5286,24 @@ const LibraryContent = () => {
     if (searchQuery && !g.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
+
+  if (selectedLibGame) {
+    // Reuse ThirdPartyDetail — build game object từ library entry.
+    const game = {
+      title: selectedLibGame.title,
+      normalizedTitle: selectedLibGame.normalizedTitle || normalizeTitle(selectedLibGame.title),
+      sources: selectedLibGame.sources || [],
+      latestDate: selectedLibGame.addedAt || '',
+    };
+    return (
+      <ThirdPartyDetail
+        game={game}
+        onBack={() => setSelectedLibGame(null)}
+        isInLibrary={true}
+        onAddLibrary={() => {}}
+      />
+    );
+  }
 
   return (
     <div className="content-area">
@@ -4961,7 +5331,7 @@ const LibraryContent = () => {
         <div className="library-empty">
           <i className="ph ph-books"></i>
           <h2>THƯ VIỆN TRỐNG</h2>
-          <p>Thêm game vào thư viện để quản lý dễ dàng hơn</p>
+          <p>Thêm game vào thư viện từ trang Third-Party hoặc nút "Thêm Game" bên phải</p>
           <button className="lib-add-btn" onClick={() => setShowAdd(true)}>
             <i className="ph-bold ph-plus"></i> Thêm Game Đầu Tiên
           </button>
@@ -4975,28 +5345,47 @@ const LibraryContent = () => {
             </span>
           </div>
           <div className="lib-grid">
-            {filteredLib.length > 0 ? filteredLib.map((g) => (
-              <div key={g.id} className="lib-card">
-                <div className="lib-card-cover">
-                  {g.coverUrl ? (
-                    <img src={g.coverUrl} alt={g.title} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
-                  ) : null}
-                  {!g.coverUrl && <i className="ph ph-game-controller"></i>}
-                </div>
-                <div className="lib-card-info">
-                  <div className="lib-card-title">{g.title}</div>
-                  <div className="lib-card-path">{g.folderPath}</div>
-                  <div className="lib-card-actions">
-                    <button className="lib-action-btn" onClick={() => handleOpen(g.folderPath)}>
-                      <i className="ph-bold ph-folder-open"></i> Mở
-                    </button>
-                    <button className="lib-action-btn lib-action-delete" onClick={() => handleRemove(g.id)}>
-                      <i className="ph-bold ph-trash"></i> Xóa
-                    </button>
+            {filteredLib.length > 0 ? filteredLib.map((g) => {
+              const achCount = g.appId ? (achievementCache[g.appId] !== undefined ? achievementCache[g.appId] : null) : null;
+              return (
+                <div key={g.id} className="lib-card">
+                  <div className="lib-card-cover">
+                    {g.thumbnail ? (
+                      <img src={g.thumbnail} alt={g.title} loading="lazy" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
+                    ) : null}
+                    <div className="tp-card-thumb-placeholder" style={{display: g.thumbnail ? 'none' : 'flex'}}>
+                      <i className="ph ph-game-controller"></i>
+                    </div>
+                    {(g.sources && g.sources.length > 0) && (
+                      <span className="tp-source-count">{g.sources.length} nguồn</span>
+                    )}
+                  </div>
+                  <div className="lib-card-info">
+                    <div className="lib-card-title" onClick={() => setSelectedLibGame(g)} style={{cursor: 'pointer'}}>{g.title}</div>
+                    {g.folderPath && <div className="lib-card-path">{g.folderPath}</div>}
+                    {achCount !== null && achCount > 0 && (
+                      <div className="lib-card-achievement">
+                        <i className="ph-bold ph-trophy" style={{fontSize: '12px', color: 'var(--accent-yellow)'}}></i>
+                        <span>{achCount} thành tựu</span>
+                      </div>
+                    )}
+                    <div className="lib-card-actions">
+                      {g.folderPath && (
+                        <button className="lib-action-btn" onClick={() => handleOpen(g.folderPath)}>
+                          <i className="ph-bold ph-folder-open"></i> Mở
+                        </button>
+                      )}
+                      <button className="lib-action-btn" onClick={() => setSelectedLibGame(g)}>
+                        <i className="ph-bold ph-info"></i> Chi tiết
+                      </button>
+                      <button className="lib-action-btn lib-action-delete" onClick={() => handleRemove(g.id)}>
+                        <i className="ph-bold ph-trash"></i> Xóa
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )) : (
+              );
+            }) : (
               <div style={{color: 'var(--text-muted)', padding: '40px', textAlign: 'center', width: '100%', gridColumn: '1 / -1'}}>
                 Không tìm thấy game nào.
               </div>
