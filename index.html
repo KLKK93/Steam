@@ -4604,8 +4604,8 @@ const normalizeTitle = (raw) => {
   return t || raw.trim();
 };
 
-// ---- TpGameCard: card game với thumbnail (lazy fetch qua /api/thirdparty) ----
-const TpGameCard = ({ game, thumbnail, isInLibrary, onClick, onAddLibrary }) => {
+// ---- TpGameCard: card game SẠCH (giống GameCard Trò Chơi) — chỉ thumbnail + title ----
+const TpGameCard = ({ game, thumbnail, onClick }) => {
   return (
     <div className="tp-card" onClick={onClick}>
       <div className="tp-card-thumb">
@@ -4615,23 +4615,9 @@ const TpGameCard = ({ game, thumbnail, isInLibrary, onClick, onAddLibrary }) => 
         <div className="tp-card-thumb-placeholder" style={{display: thumbnail ? 'none' : 'flex'}}>
           <i className="ph ph-package"></i>
         </div>
-        <span className="tp-source-count">{game.sources.length} nguồn</span>
       </div>
       <div className="tp-card-info">
         <div className="tp-card-title">{game.title || 'Không tên'}</div>
-        <div className="tp-card-actions">
-          <button
-            className="tp-add-btn"
-            onClick={(e) => { e.stopPropagation(); onAddLibrary(); }}
-            disabled={isInLibrary}
-          >
-            {isInLibrary ? (
-              <><i className="ph-bold ph-check"></i> Đã có</>
-            ) : (
-              <><i className="ph-bold ph-plus"></i> Thêm</>
-            )}
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -4723,12 +4709,36 @@ const RepacksModal = ({ game, onClose }) => {
 };
 
 // ---- ThirdPartyDetail: game-detail (Steam info + gallery + achievement + download) ----
-const ThirdPartyDetail = ({ game, onBack, isInLibrary, onAddLibrary }) => {
+const ThirdPartyDetail = ({ game, onBack }) => {
   const [steamData, setSteamData] = React.useState(null);
   const [steamLoading, setSteamLoading] = React.useState(true);
   const [showRepacks, setShowRepacks] = React.useState(false);
   const [activeMediaIndex, setActiveMediaIndex] = React.useState(0);
   const [activeRightTab, setActiveRightTab] = React.useState('info');
+  const [inLibrary, setInLibrary] = React.useState(() => {
+    try {
+      const lib = JSON.parse(localStorage.getItem('nexus_library') || '[]');
+      return lib.some((g) => g.normalizedTitle === game.normalizedTitle);
+    } catch { return false; }
+  });
+
+  const handleAddLibrary = () => {
+    try {
+      const lib = JSON.parse(localStorage.getItem('nexus_library') || '[]');
+      if (lib.some((g) => g.normalizedTitle === game.normalizedTitle)) return;
+      const newGame = {
+        id: Date.now(),
+        title: game.title,
+        normalizedTitle: game.normalizedTitle,
+        thumbnail: (steamData && steamData.header_image) || '',
+        appId: (steamData && steamData.appId) || '',
+        sources: game.sources || [],
+        addedAt: new Date().toISOString(),
+      };
+      localStorage.setItem('nexus_library', JSON.stringify([newGame, ...lib]));
+      setInLibrary(true);
+    } catch {}
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -4859,8 +4869,8 @@ const ThirdPartyDetail = ({ game, onBack, isInLibrary, onAddLibrary }) => {
         {/* Right sidebar: tabs Info / Sysreq / Achievement + action buttons */}
         <div className="tp-detail-sidebar">
           <div className="tp-action-buttons">
-            {!isInLibrary && (
-              <button className="tp-add-detail-btn" onClick={onAddLibrary}>
+            {!inLibrary && (
+              <button className="tp-add-detail-btn" onClick={handleAddLibrary}>
                 <i className="ph-bold ph-plus-circle"></i> Thêm Vào Thư Viện
               </button>
             )}
@@ -4937,98 +4947,36 @@ const ThirdPartyDetail = ({ game, onBack, isInLibrary, onAddLibrary }) => {
 
 // ---- ThirdPartyContent: catalogue (group by title, lazy thumbnail, infinite scroll) ----
 const ThirdPartyContent = () => {
-  const [allGames, setAllGames] = React.useState([]);  // grouped by normalizedTitle
+  const [allGames, setAllGames] = React.useState([]);  // grouped by normalizedTitle (từ server)
   const [loading, setLoading] = React.useState(true);
-  const [loadProgress, setLoadProgress] = React.useState({done: 0, total: THIRD_PARTY_SOURCES.length});
   const [searchQuery, setSearchQuery] = React.useState('');
   const [selectedTpGame, setSelectedTpGame] = React.useState(null);
   const [thumbnailCache, setThumbnailCache] = React.useState({});  // normalizedTitle → {appId, thumbnail}
   const [visibleCount, setVisibleCount] = React.useState(50);
-  const [library, setLibrary] = React.useState(() => {
-    try { return JSON.parse(localStorage.getItem('nexus_library') || '[]'); } catch { return []; }
-  });
 
-  // Fetch 28 source → aggregate → group by normalizedTitle.
+  // Fetch catalogue: 1 request tới /api/thirdparty?catalogue=true → server fetch 28 source song song + group + cache edge.
+  // NHANH (~2-3s first load, instant khi cached). Khong serialize qua pywebview.
   React.useEffect(() => {
     let cancelled = false;
-    let done = 0;
-    const total = THIRD_PARTY_SOURCES.length;
-    const allDownloads = [];
-
-    THIRD_PARTY_SOURCES.forEach(async (url) => {
+    (async () => {
       try {
-        let data = null;
-        if (window.pywebview && window.pywebview.api && window.pywebview.api.fetch_source) {
-          const r = await window.pywebview.api.fetch_source(url);
-          if (r && r.ok) data = r.data;
-        } else {
-          const resp = await fetch(url);
-          data = await resp.json();
-        }
-        if (!cancelled && data) {
-          const sourceName = data.name || (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'N/A'; } })();
-          (data.downloads || []).forEach((d) => {
-            allDownloads.push({
-              title: d.title || 'Không tên',
-              uris: d.uris || [],
-              uploadDate: d.uploadDate || '',
-              fileSize: d.fileSize || '',
-              descriptionHtml: d.descriptionHtml || '',
-              name: sourceName,
-              sourceUrl: url,
-            });
-          });
+        const resp = await fetch('/api/thirdparty?catalogue=true');
+        const data = await resp.json();
+        if (!cancelled && data && data.games) {
+          setAllGames(data.games);
         }
       } catch (e) {}
-      done++;
-      if (!cancelled) setLoadProgress({done, total});
-      if (done >= total && !cancelled) {
-        // Group by normalizedTitle.
-        const groups = {};
-        allDownloads.forEach((d) => {
-          const nt = normalizeTitle(d.title);
-          if (!groups[nt]) {
-            groups[nt] = {
-              title: nt,           // dùng title đã normalize làm title hiển thị (sạch hơn)
-              normalizedTitle: nt,
-              sources: [],
-              latestDate: '',
-            };
-          }
-          groups[nt].sources.push({
-            name: d.name,
-            title: d.title,
-            uris: d.uris,
-            fileSize: d.fileSize,
-            uploadDate: d.uploadDate,
-            descriptionHtml: d.descriptionHtml,
-          });
-          if (d.uploadDate) {
-            const t = new Date(d.uploadDate).getTime();
-            if (!groups[nt].latestDate || t > new Date(groups[nt].latestDate).getTime()) {
-              groups[nt].latestDate = d.uploadDate;
-            }
-          }
-        });
-        const arr = Object.values(groups).sort((a, b) => {
-          const da = a.latestDate ? new Date(a.latestDate).getTime() : 0;
-          const db = b.latestDate ? new Date(b.latestDate).getTime() : 0;
-          return db - da;
-        });
-        setAllGames(arr);
-        setLoading(false);
-      }
-    });
+      if (!cancelled) setLoading(false);
+    })();
     return () => { cancelled = true; };
   }, []);
 
-  // Lazy fetch thumbnail cho visible games (top visibleCount).
+  // Lazy fetch thumbnail cho visible games (top visibleCount), batch 10 concurrent.
   React.useEffect(() => {
     if (loading || allGames.length === 0) return;
     const toFetch = allGames.slice(0, visibleCount).filter((g) => !(g.normalizedTitle in thumbnailCache));
     if (toFetch.length === 0) return;
     let cancelled = false;
-    // Fetch song song nhưng giới hạn 10 concurrent để tránh rate limit.
     const fetchOne = async (g) => {
       try {
         const resp = await fetch('/api/thirdparty?title=' + encodeURIComponent(g.normalizedTitle));
@@ -5038,7 +4986,6 @@ const ThirdPartyContent = () => {
         }
       } catch (e) {}
     };
-    // Batch 10.
     let idx = 0;
     const runBatch = () => {
       if (cancelled) return;
@@ -5053,7 +5000,7 @@ const ThirdPartyContent = () => {
     return () => { cancelled = true; };
   }, [allGames, visibleCount, loading]);
 
-  // Infinite scroll: scroll đến cuối → visibleCount +50.
+  // Infinite scroll.
   const handleScroll = (e) => {
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
@@ -5061,31 +5008,11 @@ const ThirdPartyContent = () => {
     }
   };
 
-  const isInLibrary = (game) => library.some((g) => g.normalizedTitle === game.normalizedTitle);
-
-  const handleAddLibrary = (game) => {
-    const thumb = thumbnailCache[game.normalizedTitle] || {};
-    const newGame = {
-      id: Date.now(),
-      title: game.title,
-      normalizedTitle: game.normalizedTitle,
-      thumbnail: thumb.thumbnail || '',
-      appId: thumb.appId || '',
-      sources: game.sources,
-      addedAt: new Date().toISOString(),
-    };
-    const newLib = [newGame, ...library];
-    setLibrary(newLib);
-    try { localStorage.setItem('nexus_library', JSON.stringify(newLib)); } catch {}
-  };
-
   if (selectedTpGame) {
     return (
       <ThirdPartyDetail
         game={selectedTpGame}
         onBack={() => setSelectedTpGame(null)}
-        isInLibrary={isInLibrary(selectedTpGame)}
-        onAddLibrary={() => handleAddLibrary(selectedTpGame)}
       />
     );
   }
@@ -5115,7 +5042,7 @@ const ThirdPartyContent = () => {
       {loading && (
         <div className="tp-loading-banner">
           <i className="ph ph-spinner"></i>
-          Đang tải {loadProgress.done}/{loadProgress.total} nguồn dữ liệu...
+          Đang tải danh sách game...
         </div>
       )}
 
@@ -5133,9 +5060,7 @@ const ThirdPartyContent = () => {
               key={g.normalizedTitle}
               game={g}
               thumbnail={thumbnailCache[g.normalizedTitle] ? thumbnailCache[g.normalizedTitle].thumbnail : null}
-              isInLibrary={isInLibrary(g)}
               onClick={() => setSelectedTpGame(g)}
-              onAddLibrary={() => handleAddLibrary(g)}
             />
           ))
         ) : (
@@ -5299,8 +5224,6 @@ const LibraryContent = () => {
       <ThirdPartyDetail
         game={game}
         onBack={() => setSelectedLibGame(null)}
-        isInLibrary={true}
-        onAddLibrary={() => {}}
       />
     );
   }
@@ -5356,9 +5279,6 @@ const LibraryContent = () => {
                     <div className="tp-card-thumb-placeholder" style={{display: g.thumbnail ? 'none' : 'flex'}}>
                       <i className="ph ph-game-controller"></i>
                     </div>
-                    {(g.sources && g.sources.length > 0) && (
-                      <span className="tp-source-count">{g.sources.length} nguồn</span>
-                    )}
                   </div>
                   <div className="lib-card-info">
                     <div className="lib-card-title" onClick={() => setSelectedLibGame(g)} style={{cursor: 'pointer'}}>{g.title}</div>
