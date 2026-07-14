@@ -17,7 +17,7 @@
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
-    <link rel="stylesheet" href="./style.css?v=36">
+    <link rel="stylesheet" href="./style.css?v=38">
     <style>
       /* Spinner animation cho nut "VUI LONG CHO..." */
       @keyframes spin {
@@ -221,7 +221,8 @@ const GAME_DATA = [
       gpu: 'GeForce GTX 1660 6GB / Radeon RX 5500 XT 8GB',
       dx: 'Phiên bản 12',
       note: 'Supports 1080p gameplay (using upscaling, native resolution of 640p)/30fps. Note: Frame rate may drop when the processing load is high. An SSD is required.'
-    }
+    },
+    redeem: true
   },
   { 
     id: 8, 
@@ -246,7 +247,8 @@ const GAME_DATA = [
       connection: 'Cáp mạng Internet',
       storage: '40 GB chỗ trống khả dụng',
       note: 'Estimated performance when set to "Performance" preset: 1080p/45 fps. Framerate might drop in graphics-intensive scenes. SSD recommended.'
-    }
+    },
+    redeem: true
   },
   {
     id: 10,
@@ -361,7 +363,8 @@ const GAME_DATA = [
       storage: '130 GB chỗ trống khả dụng',
       audio: 'Windows Compatible Audio Device',
       note: 'HDD Supported, SSD Recommended. The above specifications were tested with DLSS/FSR/XeSS enabled.'
-    }
+    },
+    redeem: true
   },
   { 
     id: 7, 
@@ -382,7 +385,8 @@ const GAME_DATA = [
       gpu: 'NVIDIA GFORCE GTX 1660, AMD RX 5700, INTEL DISCRETE GPU EQUIVALENT',
       storage: '80 GB chỗ trống khả dụng',
       note: 'SSD required'
-    }
+    },
+    redeem: true
   },
   { 
     id: 5, 
@@ -523,7 +527,8 @@ const GAME_DATA = [
       gpu: 'NVIDIA GeForce GTX 960, 4 GB or AMD Radeon RX 6400, 4 GB or Intel Arc A580, 8 GB',
       storage: '50 GB chỗ trống khả dụng',
       note: 'Low 1080p @ 30 FPS w/ FSR or XeSS Balanced & Frame Gen enabled, SSD Required & 50 GB available space of storage required'
-    }
+    },
+    redeem: true
   },
   {
     id: 20,
@@ -547,7 +552,8 @@ const GAME_DATA = [
       connection: 'Cáp mạng Internet',
       storage: '45 GB chỗ trống khả dụng',
       note: '* Bắt đầu từ 01/01/2024, phần mềm Steam chỉ hỗ trợ từ Windows 10 trở lên.'
-    }
+    },
+    redeem: true
   },
   {
     id: 21,
@@ -570,7 +576,8 @@ const GAME_DATA = [
       dx: 'Phiên bản 11',
       storage: '32 GB chỗ trống khả dụng',
       note: 'PlayStation 4 controller support. * Bắt đầu từ 01/01/2024, phần mềm Steam chỉ hỗ trợ từ Windows 10 trở lên.'
-    }
+    },
+    redeem: true
   },
   {
     id: 22,
@@ -594,7 +601,8 @@ const GAME_DATA = [
       storage: '150 GB chỗ trống khả dụng',
       audio: 'Windows Compatible Audio Device',
       note: 'SSD required. Yêu cầu vi xử lý và hệ điều hành đều chạy 64-bit'
-    }
+    },
+    redeem: true
   },
   {
     id: 23,
@@ -643,7 +651,8 @@ const GAME_DATA = [
       connection: 'Cáp mạng Internet',
       storage: '50 GB chỗ trống khả dụng',
       note: '50GB SATA SSD'
-    }
+    },
+    redeem: true
   },
 {
     id: 100,
@@ -2170,7 +2179,14 @@ const GAME_DATA = [
     baseName: "EscapetheBackrooms",
     addedAt: '2026-07-12',
     steamAccount: '',
-    sysreq: {}
+    sysreq: {},
+    fix: {
+      driveId: '19W8Hdip0gO68PzZOLHfITEJt64s7b1ld',
+      password: 'V60EvDQ9n1NzSFM6u0JgU028evTMdY',
+      zipName: 'EscapetheBackrooms.zip',
+      gameExe: 'Backrooms.exe',
+      gameFolder: 'EscapeTheBackrooms'
+    }
   },
   {
     id: 201,
@@ -2260,7 +2276,14 @@ const GAME_DATA = [
     baseName: "BackroomsEscapeTogether",
     addedAt: '2026-07-12',
     steamAccount: '',
-    sysreq: {}
+    sysreq: {},
+    fix: {
+      driveId: '1gJNIz9IWWVFHwFJ8pDmTyXPe-oP2s4iy',
+      password: '3dC7HbDLKL15dEXj54CtZqT7e6dCDEDMX',
+      zipName: 'BackroomsEscapeTogether.zip',
+      gameExe: 'BetGame.exe',
+      gameFolder: 'Backrooms_Escape_Together'
+    }
   },
   {
     id: 207,
@@ -3594,6 +3617,124 @@ const GameDetail = ({ game, onBack }) => {
   const [accessNote, setAccessNote] = React.useState('');
   const accessApiRef = React.useRef(null);  // cache window.pywebview.api ref
 
+  // ====== NÚT "Fix Game" — chỉ vài game online có (game.fix). Fix online crack. ======
+  // fixState: 'idle' | 'fixing'
+  // fixNote: note dưới nút Fix Game (lỗi/thông báo). Trống = không hiện.
+  const hasFix = !!(game.fix && game.fix.driveId && game.fix.password && game.fix.gameExe && game.fix.gameFolder);
+  const [fixState, setFixState] = React.useState('idle');
+  const [fixNote, setFixNote] = React.useState('');
+
+  // ====== KHUNG "Redeem Code" — chỉ vài game có Denuvo (game.redeem). TokeerDRM redeem. ======
+  // redeemState: 'idle' | 'redeeming'
+  // redeemNote: note dưới khung (lỗi/thông báo). Trống = không hiện.
+  const hasRedeem = !!game.redeem;
+  const [redeemCode, setRedeemCode] = React.useState('');
+  const [redeemState, setRedeemState] = React.useState('idle');
+  const [redeemNote, setRedeemNote] = React.useState('');
+
+  // Flow: nhập 6 ký tự → bấm Redeem → validate 6 ký tự → check custom DLL → POST server →
+  // verify app_id match → ghi registry. Sai 6 ký tự → "Sai Mã, Vui Lòng Thử Lại".
+  // Chưa cài NexusT → "Bạn Chưa Cài Đặt NexusT". Sai game → "Code Này Phải Kích Hoạt Ở Game Khác".
+  const handleRedeemClick = async () => {
+    if (redeemState !== 'idle') return;
+    setRedeemNote('');
+    // Validate 6 ký tự (letters/digits, case-insensitive).
+    const clean = (redeemCode || '').trim();
+    if (clean.length !== 6) {
+      setRedeemNote('Sai Mã, Vui Lòng Thử Lại');
+      return;
+    }
+    let api;
+    try { api = window.pywebview && window.pywebview.api; } catch (e) {}
+    if (!api) {
+      setRedeemNote('Vui lòng mở qua ứng dụng NexusGames để redeem code');
+      return;
+    }
+    setRedeemState('redeeming');
+    try {
+      const r = await api.redeem_code(clean, String(game.appId));
+      if (!r) {
+        setRedeemState('idle');
+        setRedeemNote('Lỗi redeem không xác định');
+        return;
+      }
+      if (r.invalid) {
+        setRedeemState('idle');
+        setRedeemNote('Sai Mã, Vui Lòng Thử Lại');
+        return;
+      }
+      if (r.not_installed) {
+        setRedeemState('idle');
+        setRedeemNote('Bạn Chưa Cài Đặt NexusT');
+        return;
+      }
+      if (r.wrong_game) {
+        setRedeemState('idle');
+        setRedeemNote('Code Này Phải Kích Hoạt Ở Game Khác');
+        return;
+      }
+      if (r.code_not_found) {
+        setRedeemState('idle');
+        setRedeemNote('Sai Mã, Vui Lòng Thử Lại');
+        return;
+      }
+      if (r.success) {
+        setRedeemState('idle');
+        setRedeemCode('');
+        const uses = (r.uses_remaining !== undefined && r.uses_remaining !== null) ? (' (còn ' + r.uses_remaining + ' lượt)') : '';
+        setRedeemNote('Đã Kích Hoạt Game Thành Công' + uses);
+      } else {
+        setRedeemState('idle');
+        setRedeemNote((r.error) ? ('Lỗi redeem: ' + r.error) : 'Lỗi redeem không xác định');
+      }
+    } catch (e) {
+      setRedeemState('idle');
+      setRedeemNote('Lỗi: ' + (e && e.message ? e.message : String(e)));
+    }
+  };
+
+  // Flow: bấm Fix Game → check Steam path → gọi api.fix_game (gdown + giải nén + merge).
+  const handleFixClick = async () => {
+    if (fixState !== 'idle') return;
+    let api;
+    try { api = window.pywebview && window.pywebview.api; } catch (e) {}
+    if (!api) {
+      setFixNote('Vui lòng mở qua ứng dụng NexusGames để fix game');
+      return;
+    }
+    setFixNote('');
+    setFixState('fixing');
+    try {
+      const steam = await api.check_steam();
+      if (!steam || !steam.installed) {
+        setFixState('idle');
+        setFixNote('Chưa Cài Đặt Steam, Vui Lòng Cài Đặt Steam Trước Khi Fix Game');
+        return;
+      }
+      const r = await api.fix_game(steam.path, game.fix);
+      if (!r) {
+        setFixState('idle');
+        setFixNote('Lỗi fix game không xác định');
+        return;
+      }
+      if (r.not_installed) {
+        setFixState('idle');
+        setFixNote('Bạn chưa cài đặt game');
+        return;
+      }
+      if (r.success) {
+        setFixState('idle');
+        setFixNote('Đã Fix Game Hoàn Tất');
+      } else {
+        setFixState('idle');
+        setFixNote((r.error) ? ('Lỗi fix game: ' + r.error) : 'Lỗi fix game không xác định');
+      }
+    } catch (e) {
+      setFixState('idle');
+      setFixNote('Lỗi: ' + (e && e.message ? e.message : String(e)));
+    }
+  };
+
   // Flow: bấm nút → check Steam → check NexusT → (cài NexusT nếu thiếu) → share game.
   const handleAccessClick = async () => {
     if (accessState !== 'idle') return;  // đang xử lý → bỏ qua click thêm
@@ -3789,6 +3930,13 @@ const GameDetail = ({ game, onBack }) => {
     // Reset nút truy cập về idle + xóa note khi đổi game.
     setAccessState('idle');
     setAccessNote('');
+    // Reset nút Fix Game về idle + xóa note khi đổi game.
+    setFixState('idle');
+    setFixNote('');
+    // Reset khung Redeem Code về idle + xóa input/note khi đổi game.
+    setRedeemCode('');
+    setRedeemState('idle');
+    setRedeemNote('');
   }, [game]);
 
   React.useEffect(() => {
@@ -4125,6 +4273,65 @@ const GameDetail = ({ game, onBack }) => {
                   </button>
                   {accessNote && (
                     <div style={{marginTop: '10px', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', lineHeight: '1.5', background: (accessNote.indexOf('Lỗi') >= 0 || accessNote.indexOf('Chưa Cài Đặt') >= 0 || accessNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)', color: (accessNote.indexOf('Lỗi') >= 0 || accessNote.indexOf('Chưa Cài Đặt') >= 0 || accessNote.indexOf('Vui lòng') >= 0) ? '#ef4444' : '#f59e0b', border: '1px solid ' + ((accessNote.indexOf('Lỗi') >= 0 || accessNote.indexOf('Chưa Cài Đặt') >= 0 || accessNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)')}}>{accessNote}</div>
+                  )}
+
+                  {/* ====== NÚT "Fix Game" — chỉ hiện cho game có game.fix (online crack). Dưới nút truy cập. ====== */}
+                  {hasFix && (
+                    <div style={{marginTop: '12px'}}>
+                      <button
+                        className="gd-play-btn"
+                        onClick={handleFixClick}
+                        disabled={fixState !== 'idle'}
+                        style={{textDecoration: 'none', display: 'flex', cursor: fixState !== 'idle' ? 'wait' : 'pointer', opacity: fixState !== 'idle' ? 0.7 : 1}}
+                      >
+                        <div className="gd-play-left">
+                          {fixState === 'idle' ? (
+                            <i className="ph-bold ph-wrench" style={{fontSize: '28px', color: 'var(--accent-cyan)'}}></i>
+                          ) : (
+                            <i className="ph ph-spinner" style={{fontSize: '28px', color: 'var(--accent-cyan)', animation: 'spin 1s linear infinite'}}></i>
+                          )}
+                          <div>
+                            <div style={{fontSize: '10px', color: 'var(--text-muted)'}}>FIX GAME</div>
+                            <div style={{fontSize: '15px', fontWeight: '900', letterSpacing: '0.3px'}}>
+                              {fixState === 'idle' && 'Fix Game'}
+                              {fixState === 'fixing' && 'Đang Fix Game...'}
+                            </div>
+                          </div>
+                        </div>
+                        {fixState === 'idle' && <i className="ph-bold ph-arrow-right"></i>}
+                      </button>
+                      {fixNote && (
+                        <div style={{marginTop: '10px', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', lineHeight: '1.5', background: (fixNote.indexOf('Lỗi') >= 0 || fixNote.indexOf('Chưa cài đặt') >= 0 || fixNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)', color: (fixNote.indexOf('Lỗi') >= 0 || fixNote.indexOf('Chưa cài đặt') >= 0 || fixNote.indexOf('Vui lòng') >= 0) ? '#ef4444' : '#f59e0b', border: '1px solid ' + ((fixNote.indexOf('Lỗi') >= 0 || fixNote.indexOf('Chưa cài đặt') >= 0 || fixNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)')}}>{fixNote}</div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ====== KHUNG "Redeem Code" — chỉ hiện cho game có game.redeem (Denuvo, cần TokeerDRM). Dưới nút Fix Game. ====== */}
+                  {hasRedeem && (
+                    <div style={{marginTop: '12px'}}>
+                      <div style={{display: 'flex', gap: '8px'}}>
+                        <input
+                          type="text"
+                          value={redeemCode}
+                          onChange={(e) => setRedeemCode(e.target.value)}
+                          placeholder="Nhập 6 ký tự code"
+                          maxLength={6}
+                          disabled={redeemState !== 'idle'}
+                          style={{flex: '1', padding: '12px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '14px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', outline: 'none'}}
+                        />
+                        <button
+                          onClick={handleRedeemClick}
+                          disabled={redeemState !== 'idle'}
+                          style={{padding: '0 18px', borderRadius: '8px', border: 'none', background: redeemState !== 'idle' ? 'rgba(0,212,255,0.5)' : 'var(--accent-cyan)', color: '#0b0f17', fontSize: '14px', fontWeight: '900', cursor: redeemState !== 'idle' ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px'}}
+                        >
+                          {redeemState === 'idle' && 'Redeem'}
+                          {redeemState === 'redeeming' && 'Đang redeem...'}
+                        </button>
+                      </div>
+                      {redeemNote && (
+                        <div style={{marginTop: '10px', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', lineHeight: '1.5', background: (redeemNote.indexOf('Lỗi') >= 0 || redeemNote.indexOf('Sai Mã') >= 0 || redeemNote.indexOf('Chưa Cài Đặt') >= 0 || redeemNote.indexOf('Code Này') >= 0 || redeemNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.12)', color: (redeemNote.indexOf('Lỗi') >= 0 || redeemNote.indexOf('Sai Mã') >= 0 || redeemNote.indexOf('Chưa Cài Đặt') >= 0 || redeemNote.indexOf('Code Này') >= 0 || redeemNote.indexOf('Vui lòng') >= 0) ? '#ef4444' : '#22c55e', border: '1px solid ' + ((redeemNote.indexOf('Lỗi') >= 0 || redeemNote.indexOf('Sai Mã') >= 0 || redeemNote.indexOf('Chưa Cài Đặt') >= 0 || redeemNote.indexOf('Code Này') >= 0 || redeemNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')}}>{redeemNote}</div>
+                      )}
+                    </div>
                   )}
                 </div>
               ) : (
