@@ -3973,22 +3973,40 @@ const GameDetail = ({ game, onBack }) => {
   // Steam CDN media - lay tu game.media
   // (Phan nay da duoc xu ly boi useMemo o tren)
 
-  // Effect 1: Khoi tao va gan luong HLS hoac video tinh cho tung phan tu video
+  // Effect 1: Khoi tao HLS cho DUY NHAT active video (lazy-load).
+  // Truoc day attach HLS cho TAT CA trailer cung luc -> game co nhieu trailer
+  // (vd 1091500 = 12 video) -> 12 stream den cung host video.akamai.steamstatic.com
+  // -> browser limit 6 connection/host -> 6+ stream bi queue -> stuck 0:00.
+  // Fix: chi attach HLS cho active video; video khac chi hien poster, detach HLS
+  // de giai phong connection. Khi user click chon video khac -> attach moi.
   React.useEffect(() => {
     mediaRefs.current.forEach((el, i) => {
       if (!el || el.tagName !== 'VIDEO') return;
       const media = validMedia[i];
       if (!media || media.type !== 'video' || !media.src) return;
 
-      // Tranh khoi tao lai neu dung link cu
-      if (el.dataset.currentSrc === media.src) return;
-      el.dataset.currentSrc = media.src;
+      const isActive = (i === activeMediaIndex);
 
-      // Giai phong Hls cu neu co
+      if (!isActive) {
+        // Video khong active -> giai phong HLS + src de don connection cho active video.
+        if (el.hlsInstance) {
+          el.hlsInstance.destroy();
+          delete el.hlsInstance;
+        }
+        delete el.dataset.currentSrc;
+        try { el.removeAttribute('src'); el.load(); } catch (e) {}
+        el.pause();
+        return;
+      }
+
+      // Active video: bo qua neu da attach dung src nay (tranh re-init khi Effect chay lai).
+      if (el.dataset.currentSrc === media.src && el.hlsInstance) return;
+      // Xoa HLS cu neu doi src.
       if (el.hlsInstance) {
         el.hlsInstance.destroy();
         delete el.hlsInstance;
       }
+      el.dataset.currentSrc = media.src;
 
       if (media.src.includes('.m3u8')) {
         if (window.Hls && window.Hls.isSupported()) {
@@ -4002,21 +4020,28 @@ const GameDetail = ({ game, onBack }) => {
             levelLoadingTimeOut: 20000,
             fragLoadingTimeOut: 30000,
           });
-          // MANIFEST_PARSED: HLS da load xong manifest -> play neu day la active video.
-          // Fix race condition: Effect 2 (el.play()) co the chay TRUOC khi HLS attach
-          // -> play fail silent -> video stuck 0:00 (game video lon nhu Wallpaper Engine).
+          // MANIFEST_PARSED: HLS da load xong manifest -> play (active video).
           hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
             if (el.dataset.isActive === '1') {
               el.play().catch(() => {});
             }
           });
-          // Error recovery: NETWORK -> retry, MEDIA -> recover, other -> destroy.
+          // Error recovery: NETWORK -> retry (gioi han 3 lan roi destroy de khong lap vo han),
+          // MEDIA -> recover, other -> destroy.
+          let netRetry = 0;
           hls.on(window.Hls.Events.ERROR, (event, data) => {
             if (!data || !data.fatal) return;
             switch (data.type) {
               case window.Hls.ErrorTypes.NETWORK_ERROR:
-                console.warn('HLS network error, retry:', data.details);
-                hls.startLoad();
+                netRetry++;
+                if (netRetry > 3) {
+                  console.error('HLS network error het retry, destroy:', data.details);
+                  hls.destroy();
+                  delete el.hlsInstance;
+                } else {
+                  console.warn('HLS network error, retry', netRetry, ':', data.details);
+                  setTimeout(() => { try { hls.startLoad(); } catch (e) {} }, 1000 * netRetry);
+                }
                 break;
               case window.Hls.ErrorTypes.MEDIA_ERROR:
                 console.warn('HLS media error, recover:', data.details);
@@ -4041,6 +4066,7 @@ const GameDetail = ({ game, onBack }) => {
     });
 
     return () => {
+      // Cleanup khi validMedia thay doi: destroy tat ca HLS.
       mediaRefs.current.forEach((el) => {
         if (el && el.hlsInstance) {
           el.hlsInstance.destroy();
@@ -4048,7 +4074,8 @@ const GameDetail = ({ game, onBack }) => {
         }
       });
     };
-  }, [validMedia]);
+  }, [validMedia, activeMediaIndex]);
+
 
   // Effect 2: Dieu khien play/pause dua tren activeMediaIndex
   // Set dataset.isActive de MANIFEST_PARSED / onCanPlay biet co nen play khong.
