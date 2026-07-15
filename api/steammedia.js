@@ -69,8 +69,20 @@ module.exports = async (req, res) => {
       return;
     }
     const data = entry.data;
+    // Steam appdetails movie: hls_h264 la string URL (.m3u8) — uu tien (cho HLS).
+    // Mot so game co the tra webm/mp4 la OBJECT {480, max} thay vi hls_h264.
+    const pickMovieSrc = (m) => {
+      if (typeof m.hls_h264 === 'string' && m.hls_h264) return m.hls_h264;
+      for (const key of ['mp4', 'webm']) {
+        const v = m[key];
+        if (!v) continue;
+        if (typeof v === 'string') return v;
+        if (typeof v === 'object') return v.max || v['480'] || (Object.values(v)[0] || '');
+      }
+      return '';
+    };
     const movies = (data.movies || []).map(m => ({
-      src: m.hls_h264 || m.webm || m.mp4 || '',
+      src: pickMovieSrc(m),
       thumb: m.thumbnail || '',
     })).filter(m => m.src);
     const screenshots = (data.screenshots || []).map(s => s.path_full || '').filter(Boolean);
