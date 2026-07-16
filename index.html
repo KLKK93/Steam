@@ -1438,7 +1438,8 @@ const GAME_DATA = [
     baseName: "AtomicHeart",
     addedAt: '2026-07-12',
     steamAccount: '',
-    sysreq: {}
+    sysreq: {},
+    redeem: true
   },
   {
     id: 152,
@@ -1954,7 +1955,8 @@ const GAME_DATA = [
     baseName: "DemonSlayerKimetsunoYaibaTheHinokamiChronicles",
     addedAt: '2026-07-12',
     steamAccount: '',
-    sysreq: {}
+    sysreq: {},
+    redeem: true
   },
   {
     id: 186,
@@ -2408,7 +2410,8 @@ const GAME_DATA = [
     baseName: "DemonSlayerKimetsunoYaibaTheHinokamiChronicles2",
     addedAt: '2026-07-12',
     steamAccount: '',
-    sysreq: {}
+    sysreq: {},
+    redeem: true
   },
   {
     id: 215,
@@ -3055,6 +3058,66 @@ const GAME_DATA = [
     viethoa: false,
     cloudSave: false,
     baseName: 'NARAKABLADEPOINT',
+    addedAt: '2026-07-16',
+    steamAccount: '',
+    sysreq: {}
+  },
+  {
+    id: 257,
+    title: "Hollow Knight",
+    appId: '367520',
+    percent: '96.50%',
+    reviewText: 'CỰC KỲ TÍCH CỰC',
+    reviewCount: '275.678 đánh giá',
+    tags: ['ĐỘC LẬP', 'METROIDVANIA', 'ĐỒ HOẠ ĐẸP', 'NHẬP VAI'],
+    viethoa: false,
+    cloudSave: false,
+    baseName: 'HollowKnight',
+    addedAt: '2026-07-16',
+    steamAccount: '',
+    sysreq: {}
+  },
+  {
+    id: 258,
+    title: "Hollow Knight: Silksong",
+    appId: '1030300',
+    percent: '93.20%',
+    reviewText: 'CỰC KỲ TÍCH CỰC',
+    reviewCount: '18.456 đánh giá',
+    tags: ['ĐỘC LẬP', 'METROIDVANIA', 'ĐỒ HOẠ ĐẸP', 'HÀNH ĐỘNG'],
+    viethoa: false,
+    cloudSave: false,
+    baseName: 'HollowKnightSilksong',
+    addedAt: '2026-07-16',
+    steamAccount: '',
+    sysreq: {}
+  },
+  {
+    id: 259,
+    title: "God of War",
+    appId: '1593500',
+    percent: '94.80%',
+    reviewText: 'CỰC KỲ TÍCH CỰC',
+    reviewCount: '98.765 đánh giá',
+    tags: ['HÀNH ĐỘNG', 'PHIÊU LƯU', 'NHẬP VAI', 'ĐỒ HOẠ ĐẸP'],
+    viethoa: false,
+    cloudSave: false,
+    baseName: 'GodOfWar',
+    addedAt: '2026-07-16',
+    steamAccount: '',
+    sysreq: {}
+  },
+  {
+    id: 260,
+    title: "God of War Ragnarök",
+    appId: '2322010',
+    percent: '92.30%',
+    reviewText: 'CỰC KỲ TÍCH CỰC',
+    reviewCount: '65.432 đánh giá',
+    tags: ['HÀNH ĐỘNG', 'PHIÊU LƯU', 'NHẬP VAI', 'ĐỒ HOẠ ĐẸP'],
+    viethoa: false,
+    cloudSave: false,
+    baseName: 'GodOfWarRagnarok',
     addedAt: '2026-07-16',
     steamAccount: '',
     sysreq: {}
@@ -4793,7 +4856,7 @@ const GameDetail = ({ game, onBack }) => {
   const [liveSysreq, setLiveSysreq] = React.useState(null);
 
   // ====== NÚT "Click Vào Đây Để Truy Cập" — state machine ======
-  // accessState: 'idle' | 'checking' | 'installing_nexust' | 'sharing'
+  // accessState: 'idle' | 'checking' | 'installing_nexust' | 'writing_registry' | 'sharing'
   // accessNote: note dưới nút (lỗi/thông báo). Trống = không hiện.
   const [accessState, setAccessState] = React.useState('idle');
   const [accessNote, setAccessNote] = React.useState('');
@@ -4953,7 +5016,18 @@ const GameDetail = ({ game, onBack }) => {
           return;
         }
       }
-      // 3. Share game.
+      // 3. Write registry (AppTicket + ETicket) — chỉ cho game có redeem (Denuvo).
+      //    Chen TRUOC share_game. Non-redeem game -> skip (method trả skipped:true).
+      if (game.redeem === true) {
+        setAccessState('writing_registry');
+        const rt = await api.write_registry_tickets(String(game.appId));
+        if (!rt || !rt.success) {
+          setAccessState('idle');
+          setAccessNote((rt && rt.error) ? ('Lỗi ghi registry: ' + rt.error) : 'Lỗi ghi registry không xác định');
+          return;
+        }
+      }
+      // 4. Share game.
       setAccessState('sharing');
       const r2 = await api.share_game(steam.path, String(game.appId));
       if (!r2) {
@@ -5474,6 +5548,7 @@ const GameDetail = ({ game, onBack }) => {
                           {accessState === 'idle' && 'Click Vào Đây Để Truy Cập'}
                           {accessState === 'checking' && 'Đang Kiểm Tra...'}
                           {accessState === 'installing_nexust' && 'Đang Cài Đặt NexusT...'}
+                          {accessState === 'writing_registry' && 'Đang Ghi Registry Xác Thực Game...'}
                           {accessState === 'sharing' && 'Đang Share Game Qua Tài Khoản Steam...'}
                         </div>
                       </div>
