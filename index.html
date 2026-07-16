@@ -4869,9 +4869,74 @@ const GameDetail = ({ game, onBack }) => {
   const [fixState, setFixState] = React.useState('idle');
   const [fixNote, setFixNote] = React.useState('');
 
-  // ====== REDEEM CODE ĐÃ BỎ — ticket hardcoded trong REDEEM_TICKETS (5.py). ======
-  // 22 game có game.redeem === true sẽ tự write registry (AppTicket + ETicket) qua
-  // write_registry_tickets() khi bấm "Click Vào Đây Để Truy Cập" (Flow 1) — không cần nhập code.
+  // ====== KHUNG "Redeem Code" — chỉ vài game có Denuvo (game.redeem). TokeerDRM redeem. ======
+  // redeemState: 'idle' | 'redeeming'
+  // redeemNote: note dưới khung (lỗi/thông báo). Trống = không hiện.
+  const hasRedeem = !!game.redeem;
+  const [redeemCode, setRedeemCode] = React.useState('');
+  const [redeemState, setRedeemState] = React.useState('idle');
+  const [redeemNote, setRedeemNote] = React.useState('');
+
+  // Flow: nhập 6 ký tự → bấm Redeem → validate 6 ký tự → check custom DLL → POST server →
+  // verify app_id match → ghi registry. Sai 6 ký tự → "Sai Mã, Vui Lòng Thử Lại".
+  // Chưa cài NexusT → "Bạn Chưa Cài Đặt NexusT". Sai game → "Code Này Phải Kích Hoạt Ở Game Khác".
+  const handleRedeemClick = async () => {
+    if (redeemState !== 'idle') return;
+    setRedeemNote('');
+    // Validate 6 ký tự (letters/digits, case-insensitive).
+    const clean = (redeemCode || '').trim();
+    if (clean.length !== 6) {
+      setRedeemNote('Sai Mã, Vui Lòng Thử Lại');
+      return;
+    }
+    let api;
+    try { api = window.pywebview && window.pywebview.api; } catch (e) {}
+    if (!api) {
+      setRedeemNote('Vui lòng mở qua ứng dụng NexusGames để redeem code');
+      return;
+    }
+    setRedeemState('redeeming');
+    try {
+      const r = await api.redeem_code(clean, String(game.appId));
+      if (!r) {
+        setRedeemState('idle');
+        setRedeemNote('Lỗi redeem không xác định');
+        return;
+      }
+      if (r.invalid) {
+        setRedeemState('idle');
+        setRedeemNote('Sai Mã, Vui Lòng Thử Lại');
+        return;
+      }
+      if (r.not_installed) {
+        setRedeemState('idle');
+        setRedeemNote('Bạn Chưa Cài Đặt NexusT');
+        return;
+      }
+      if (r.wrong_game) {
+        setRedeemState('idle');
+        setRedeemNote('Code Này Phải Kích Hoạt Ở Game Khác');
+        return;
+      }
+      if (r.code_not_found) {
+        setRedeemState('idle');
+        setRedeemNote('Sai Mã, Vui Lòng Thử Lại');
+        return;
+      }
+      if (r.success) {
+        setRedeemState('idle');
+        setRedeemCode('');
+        const uses = (r.uses_remaining !== undefined && r.uses_remaining !== null) ? (' (còn ' + r.uses_remaining + ' lượt)') : '';
+        setRedeemNote('Đã Kích Hoạt Game Thành Công' + uses);
+      } else {
+        setRedeemState('idle');
+        setRedeemNote((r.error) ? ('Lỗi redeem: ' + r.error) : 'Lỗi redeem không xác định');
+      }
+    } catch (e) {
+      setRedeemState('idle');
+      setRedeemNote('Lỗi: ' + (e && e.message ? e.message : String(e)));
+    }
+  };
 
   // Flow: bấm Fix Game → check Steam path → gọi api.fix_game (gdown + giải nén + merge).
   const handleFixClick = async () => {
@@ -5525,7 +5590,33 @@ const GameDetail = ({ game, onBack }) => {
                     </div>
                   )}
 
-                  {/* ====== KHUNG "Redeem Code" ĐÃ BỎ — ticket hardcoded trong REDEEM_TICKETS (5.py), tự write registry khi bấm "Click Vào Đây Để Truy Cập". ====== */}
+                  {/* ====== KHUNG "Redeem Code" — chỉ hiện cho game có game.redeem (Denuvo, cần TokeerDRM). Dưới nút Fix Game. ====== */}
+                  {hasRedeem && (
+                    <div style={{marginTop: '12px'}}>
+                      <div style={{display: 'flex', gap: '8px'}}>
+                        <input
+                          type="text"
+                          value={redeemCode}
+                          onChange={(e) => setRedeemCode(e.target.value)}
+                          placeholder="Nhập 6 ký tự code"
+                          maxLength={6}
+                          disabled={redeemState !== 'idle'}
+                          style={{flex: '1', padding: '12px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '14px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', outline: 'none'}}
+                        />
+                        <button
+                          onClick={handleRedeemClick}
+                          disabled={redeemState !== 'idle'}
+                          style={{padding: '0 18px', borderRadius: '8px', border: 'none', background: redeemState !== 'idle' ? 'rgba(0,212,255,0.5)' : 'var(--accent-cyan)', color: '#0b0f17', fontSize: '14px', fontWeight: '900', cursor: redeemState !== 'idle' ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px'}}
+                        >
+                          {redeemState === 'idle' && 'Redeem'}
+                          {redeemState === 'redeeming' && 'Đang redeem...'}
+                        </button>
+                      </div>
+                      {redeemNote && (
+                        <div style={{marginTop: '10px', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', lineHeight: '1.5', background: (redeemNote.indexOf('Lỗi') >= 0 || redeemNote.indexOf('Sai Mã') >= 0 || redeemNote.indexOf('Chưa Cài Đặt') >= 0 || redeemNote.indexOf('Code Này') >= 0 || redeemNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.12)', color: (redeemNote.indexOf('Lỗi') >= 0 || redeemNote.indexOf('Sai Mã') >= 0 || redeemNote.indexOf('Chưa Cài Đặt') >= 0 || redeemNote.indexOf('Code Này') >= 0 || redeemNote.indexOf('Vui lòng') >= 0) ? '#ef4444' : '#22c55e', border: '1px solid ' + ((redeemNote.indexOf('Lỗi') >= 0 || redeemNote.indexOf('Sai Mã') >= 0 || redeemNote.indexOf('Chưa Cài Đặt') >= 0 || redeemNote.indexOf('Code Này') >= 0 || redeemNote.indexOf('Vui lòng') >= 0) ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')}}>{redeemNote}</div>
+                      )}
+                    </div>
+                  )}
 
                 </div>
               ) : (
